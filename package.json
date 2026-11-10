@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:auth": "node --import tsx --test scripts/safe-redirect.test.mjs scripts/auth-client.test.mjs scripts/proxy.test.mjs"
   },
   "dependencies": {
     "next": "16.4.6",
@@ -25,6 +26,7 @@
     "eslint": "^9",
     "eslint-config-next": "16.4.6",
     "tailwindcss": "4.3.3",
+    "tsx": "^4.23.15",
     "typescript": "^5"
   }
 }

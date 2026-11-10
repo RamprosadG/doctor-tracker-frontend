@@ -24,16 +24,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // The cookies are httpOnly, so a reload can only learn who is signed in by
   // asking. A 401 here means "nobody is home", not an error to report.
   useEffect(() => {
-    const controller = new AbortController();
+    let active = true;
 
-    fetchSessionUser(controller.signal)
-      .then(setUser)
-      .catch(() => setUser(null))
+    fetchSessionUser()
+      .then((sessionUser) => {
+        if (active) setUser(sessionUser);
+      })
+      .catch(() => {
+        if (active) setUser(null);
+      })
       .finally(() => {
-        if (!controller.signal.aborted) setIsLoading(false);
+        if (active) setIsLoading(false);
       });
 
-    return () => controller.abort();
+    return () => { active = false; };
   }, []);
 
   // Any call that still answers 401 after a rotation means the session is gone.

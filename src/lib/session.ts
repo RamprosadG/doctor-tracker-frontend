@@ -5,11 +5,7 @@ import { safeRedirectTarget } from "./safe-redirect";
 import { apiGet } from "./server-api";
 import type { SessionResponse, SessionUser } from "@/types/auth";
 
-/**
- * Server-side session read for Server Components. `server-api` forwards the
- * incoming `cookie` header, so the API authorises this exactly as it would the
- * same call from the browser — including rotating a stale access token.
- */
+// Server renders forward only access tokens; refresh-cookie rotation belongs to the browser.
 export async function getSessionUser(): Promise<SessionUser | null> {
   try {
     const data = await apiGet<SessionResponse>("/auth/me");

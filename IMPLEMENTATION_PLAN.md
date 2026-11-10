@@ -21,8 +21,8 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Verified & Committed)*
 - [x] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Verified & Committed)*
 - [x] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Verified & Committed)*
-- [x] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Verified — uncommitted)*
-- [ ] **Step 7: Performance, Hardening & End-to-End QA** *(Planned)*
+- [x] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Verified & Committed)*
+- [ ] **Step 7: Performance, Hardening & End-to-End QA** *(In progress — initial hardening/auth slice verified)*
 - [ ] **Step 8: Documentation, Visual Evidence & Release** *(Planned)*
 
 ### Track record
@@ -35,8 +35,8 @@ this plan — may name another project. Every component is described as somethin
 | 3 | Doctors | `af95512` | `aaf2d6f` | Verified & Committed |
 | 4 | Patients | `ad2c786` | `7123928` | Verified & Committed |
 | 5 | Relations | `ca48d87` | `665aa13` | Verified & Committed |
-| 6 | Dashboard | — | — | Verified (uncommitted) |
-| 7 | Performance/QA | — | — | Planned |
+| 6 | Dashboard | `48396be` | `98f0869` | Verified & Committed |
+| 7 | Performance/QA | — | — | In progress; initial hardening/auth verified |
 | 8 | Docs/Release | — | — | Planned |
 
 Fill the two commit columns with the short SHA once the step is verified.
@@ -490,7 +490,7 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
 
 ### Step 6: Dashboard & Analytics — Recharts Visual Insights
 **Goal**: Meaningful aggregation with real database pipelines, rendered as charts.
-**Status:** Verified (uncommitted)
+**Status:** Verified & Committed — backend `48396be`, frontend `98f0869`
 
 #### Backend
 - [x] **6.1** `dashboard.service.ts` — `getDashboardSummary()`: total doctors, total patients, average patients per doctor, new this month, doctors with zero patients. `countDocuments` plus one occupied-owner grouping; no full list fetch.
@@ -516,30 +516,35 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
 - [x] **6.8** Four KPI columns at 1440 px, two at 768/375 px; charts stack on narrower screens.
   - Verify: at 1440 / 768 / 375, document `scrollWidth == clientWidth` was 1425 / 753 / 360; all four plots had positive dimensions, axis-label overflow was zero and range buttons measured 44 px high. Captures were inspected at desktop and mobile.
 
-**Step 6 gate:** implementation and verification passed; both repositories remain uncommitted pending an explicit commit request. No push performed.
+**Step 6 gate:** implementation and verification passed; committed on explicit request as backend `48396be` and frontend `98f0869`. No push performed.
 
 ---
 
 ### Step 7: Performance, Hardening & End-to-End QA
 **Goal**: Prove the optimization criteria in the spec rather than claim them.
-**Status:** Planned
+**Status:** In progress — first hardening/auth slice verified, uncommitted; broader audits remain open.
 
 #### Backend
-- [ ] **7.1** `helmet`, `compression`, request logging (dev), body-size limit, security headers, centralized async error forwarding, Mongo duplicate/cast/validation error mapping to 409/400/422.
-  - Verify: response headers present; a bad ObjectId returns 400 not 500.
+- [x] **7.1** `helmet`, `compression`, request logging (dev), body-size limit, security headers, centralized async error forwarding, Mongo duplicate/cast/validation error mapping to 409/400/422.
+  - Verify: `npm run test:hardening` passes 13 tests using real HTTP listeners, actual Mongoose error classes and no clinic DB connection. Headers, gzip, malformed body 400, oversized JSON/form 413, unsupported encoding 415, safe CORS 403, async 500, duplicate 409, cast 400, validation 422 and headers-sent delegation pass.
+  - Development logs include method, route template/unmatched, status and duration only; error logs omit raw input/error objects. Existing 100kb limits and Express 5 async forwarding are preserved. Live API headers confirmed; both repository lint/typecheck/build gates passed.
 - [ ] **7.2** Query audit: `lean()` + projection on every list path, no `find()` without limit, `explain()` evidence captured for search/filter/pagination.
   - Verify: `IXSCAN` + `docsExamined ≤ pageSize + scanned-window` recorded per query.
 - [ ] **7.3** Global rate limiter plus stricter auth limiter; graceful shutdown closes HTTP server then Mongoose.
   - Verify: `SIGINT` drains without a dangling handle.
+  - Implemented and partially verified: global 300/15m plus login 5/min defaults, JSON 429/Retry-After, proxy-header spoofing does not change the IP budget, GET/HEAD readiness exemptions. Owned-child tests drain real HTTP before a stubbed database disconnect, prove idempotence/nonzero disconnect-failure exit, and force-close held sockets after 10 seconds.
+  - Still open: actual Mongoose disconnect and OS-delivered signal verification. Tests emitted signal events inside owned child processes; no live development process was stopped. Limits are process-local; proxy trust remains disabled until a deployment topology is explicitly chosen.
 - [ ] **7.4** Smoke suite (`node --test`) covering auth, doctors, patients, dashboard against a disposable Mongo namespace.
   - Verify: `npm test` green.
+  - Follow-up auth coverage: backend refresh consumption still uses read/save rather than an atomic claim (`src/modules/auth/refreshToken.service.ts:65,83`); concurrent cross-tab requests remain unverified. Access-token authentication also catches database failures as session failures (`src/middlewares/authenticate.ts:28-40,54-55`). Address these in the isolated auth smoke pass; the browser-bootstrap fix below does not claim to solve all backend concurrency/outage behavior.
 
 #### Frontend
 - [ ] **7.5** Render audit: Server Components where data-only, narrow `"use client"` islands, `useMemo`/`useCallback` on table columns and filters, stable keys, `next/image` where relevant.
   - Verify: Profiler shows row-level re-renders only on mutation.
 - [ ] **7.6** State/UX pass: loading skeletons, empty states, error states with retry, optimistic-free but non-blocking refresh, focus rings, aria labels, keyboard modal close.
   - Verify: each list page exercised with the network throttled and with an empty collection.
-  - Follow-up observed before Step 6 QA: stale cookies belonging to a deleted/expired QA session caused `/login` ↔ `/` redirects. Logout cleared them for testing; reproduce and resolve the existing session-gate loop during this hardening pass.
+  - Stale-session follow-up resolved: `/login` always renders; validated browser state chooses redirects. RSCs still forward only access cookies. The browser shares one non-aborted bootstrap request across remounts, preventing the duplicate refresh successors reproduced during QA. Canonical URL checks reject control-character external redirects and login self-targets; the login form uses POST and disables submission until bootstrap settles, preventing pre-hydration password-in-query submission.
+  - Verified: `npm run test:auth` passes 27 regression tests. Chrome passed 29 checks: real login/bad credentials, anonymous/valid/invalid/deleted-user sessions, expired-access and refresh-only recovery (exactly one active successor), no RSC refresh consumption/Set-Cookie, safe next, unreachable API/recovery, and desktop/mobile overflow. The broader list-state/accessibility pass remains open.
 - [ ] **7.7** Responsive QA sweep at 375 / 768 / 1024 / 1440 px for login, dashboard, doctors, doctor detail, patients.
   - Verify: zero horizontal overflow, tap targets ≥ 44 px on mobile.
 - [ ] **7.8** Full QA run as an engineer would: create → search → filter → paginate → edit → reassign → delete on both entities, plus chart accuracy against the same data set.
@@ -603,7 +608,28 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 
 ## Session log
 
-- **2026-11-10** — Step 6 implemented and verified, **not committed**. Added protected dashboard summary/chart
+- **2026-11-10** — On explicit request, committed Step 6 as backend `48396be` and frontend `98f0869`; no push.
+  Started Step 7 with the bounded API-hardening and session-recovery slice above; these new changes remain
+  uncommitted. Backend `npm run test:hardening`: **13/13**; frontend `npm run test:auth`: **27/27**; both lint,
+  typecheck and production builds passed. Frontend output was isolated from the running dev server and
+  temporary configuration changes were restored. Production dependency audits: **0 advisories** in both;
+  frontend still reports seven moderate development advisories, not auto-fixed. Actual Chrome QA passed
+  **29 checks** with owned throwaway users; final counts **12 doctors / 60 patients**, no QA users/patients.
+  Owned test sessions, browser profiles and scratch/build outputs were removed; existing dev servers stayed
+  running. Step 7.1 is checked; 7.3 and 7.6 are only partially verified, so the broader step remains open.
+
+  | Finding | Severity | Result | Evidence |
+  | --- | --- | --- | --- |
+  | Stale cookies loop between login and protected pages | High | Fixed | `frontend/src/proxy.ts:35`; invalid/deleted/expired/refresh-only browser cases pass |
+  | Tab/newline normalization bypasses redirect whitelist | High | Fixed | `frontend/src/lib/safe-redirect.ts:6`; regression and actual-browser targets remain local |
+  | Login before hydration submits password in GET query | High | Fixed | `frontend/src/components/features/auth/LoginForm.tsx:61,99`; SSR POST + disabled submit, no password URL in final run |
+  | Development remount duplicates bootstrap refresh | Medium | Fixed for bootstrap | `frontend/src/lib/auth-client.ts:4-13`; one active successor per recovered session |
+  | Backend refresh race / DB faults treated as invalid auth | High | Open for 7.4 | `backend/src/modules/auth/refreshToken.service.ts:65,83`; `backend/src/middlewares/authenticate.ts:28-40,54-55` |
+  | Actual DB/OS-signal shutdown drain | Verification gap | Open for 7.3 | Current lifecycle tests use real HTTP with stubbed DB and emitted signal events |
+
+  In the table, `frontend/` and `backend/` abbreviate the two `doctor-tracker-*` repository directories.
+
+- **2026-11-10** — Step 6 implemented and verified before its later explicit commit. Added protected dashboard summary/chart
   endpoints, a covering registration index, and `src/scripts/verify-dashboard.ts`; the final run passed **192**
   assertions against an owned disposable database and the running API. Live reads used explicit throwaway QA
   credentials; cleanup removed the probe's own session. All four chart inputs used covered index scans; a
@@ -621,7 +647,7 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
   production advisories; the install reported seven moderate development advisories, not auto-fixed here.
   Final cleanup removed the QA user and 11 owned sessions; counts are 12 doctors / 60 patients, with no QA
   patients or QA users left. The pre-existing stale-cookie redirect issue is recorded under 7.6. No push
-  performed; Step 7 is the next implementation step, and the Step 6 commits await an explicit request.
+  performed at this checkpoint; the subsequent Step 6 commits and initial Step 7 work are recorded above.
 
 - **2026-11-10** — Step 5 verified and committed. Backend `dist/probe-roster.mjs`: **28/28** against the live
   cluster — the detail route answers `patientCount` and no patients array, its value equal to

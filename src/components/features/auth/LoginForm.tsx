@@ -12,7 +12,7 @@ import { safeRedirectTarget } from "@/lib/safe-redirect";
 import type { FieldErrors } from "@/types/api";
 
 export function LoginForm() {
-  const { user, login } = useAuth();
+  const { user, login, isLoading } = useAuth();
   const router = useRouter();
   const next = safeRedirectTarget(useSearchParams().get("next"));
 
@@ -58,7 +58,7 @@ export function LoginForm() {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+    <form method="post" onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
       {formError && (
         <p
           role="alert"
@@ -96,7 +96,7 @@ export function LoginForm() {
         hideOptionalText
       />
 
-      <Button type="submit" size="lg" isLoading={isSubmitting} className="mt-1 w-full">
+      <Button type="submit" size="lg" disabled={isLoading || isSubmitting} isLoading={isSubmitting} className="mt-1 w-full">
         {isSubmitting ? "Signing in…" : "Sign in"}
       </Button>
 

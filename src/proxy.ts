@@ -1,5 +1,4 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { safeRedirectTarget } from "@/lib/safe-redirect";
 
 /**
  * Presence-only gate. Whether the tokens still verify is the API's answer, not
@@ -32,11 +31,8 @@ export default function proxy(request: NextRequest) {
     (name) => request.cookies.get(name)?.value,
   );
 
-  if (pathname === "/login") {
-    if (!hasSession) return passThrough(request);
-    const target = safeRedirectTarget(request.nextUrl.searchParams.get("next"));
-    return NextResponse.redirect(new URL(target, request.url));
-  }
+  // Stale cookies must reach the browser so it can refresh or clear them.
+  if (pathname === "/login") return passThrough(request);
 
   if (hasSession) return passThrough(request);
 
