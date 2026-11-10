@@ -1,0 +1,115 @@
+import type { ApiEnvelope, FieldErrors, QueryParams } from "@/types/api";
+
+/**
+ * Browser-side API base. Inlined by the bundler, so the web app needs no proxy
+ * route in front of the Express service.
+ */
+export const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:5000/api/v1";
+
+export class ApiError extends Error {
+  readonly statusCode: number;
+  readonly errors?: FieldErrors;
+
+  constructor(message: string, statusCode: number, errors?: FieldErrors) {
+    super(message);
+    this.name = "ApiError";
+    this.statusCode = statusCode;
+    this.errors = errors;
+  }
+}
+
+/** Drops empty values so a blank filter box never sends `search=`. */
+export function buildUrl(
+  baseUrl: string,
+  path: string,
+  query?: QueryParams,
+): string {
+  const url = new URL(
+    `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`,
+  );
+
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (value === undefined || value === null || value === "") continue;
+    url.searchParams.set(key, String(value));
+  }
+
+  return url.toString();
+}
+
+/**
+ * Turns a response into either its `data` or an `ApiError`. Shared with the
+ * server wrapper so both faces fail with the same message and field errors.
+ */
+export async function unwrap<T>(response: Response): Promise<T> {
+  let envelope: ApiEnvelope<T> | undefined;
+
+  try {
+    envelope = (await response.json()) as ApiEnvelope<T>;
+  } catch {
+    throw new ApiError(
+      response.status === 401
+        ? "Your session has expired. Please sign in again."
+        : "The API replied with something this app could not read.",
+      response.status,
+    );
+  }
+
+  if (!response.ok || envelope.success === false) {
+    throw new ApiError(
+      envelope?.message ?? "The request could not be completed.",
+      response.status,
+      envelope?.errors,
+    );
+  }
+
+  return envelope.data;
+}
+
+export interface RequestOptions {
+  query?: QueryParams;
+  body?: unknown;
+  signal?: AbortSignal;
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  { query, body, signal }: RequestOptions = {},
+): Promise<T> {
+  let response: Response;
+
+  try {
+    response = await fetch(buildUrl(API_URL, path, query), {
+      method,
+      headers: {
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+      // The session lives in httpOnly cookies, so every call must carry them.
+      credentials: "include",
+      // List pages are filtered by URL; a cached response would show stale rows.
+      cache: "no-store",
+      signal,
+    });
+  } catch {
+    throw new ApiError(
+      "Cannot reach the API. Check that the backend is running.",
+      0,
+    );
+  }
+
+  return unwrap<T>(response);
+}
+
+export const apiClient = {
+  get: <T>(path: string, query?: QueryParams, signal?: AbortSignal) =>
+    request<T>("GET", path, { query, signal }),
+  post: <T>(path: string, body?: unknown, query?: QueryParams) =>
+    request<T>("POST", path, { body, query }),
+  patch: <T>(path: string, body?: unknown, query?: QueryParams) =>
+    request<T>("PATCH", path, { body, query }),
+  delete: <T>(path: string, query?: QueryParams) =>
+    request<T>("DELETE", path, { query }),
+} as const;

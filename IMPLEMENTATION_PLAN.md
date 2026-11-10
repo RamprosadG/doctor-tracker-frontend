@@ -16,7 +16,7 @@ this plan — may name another project. Every component is described as somethin
 ## 📊 Overall Progress Summary
 
 - [x] **Step 0: Dual Bootstrap — Repo Skeletons, Config, Shell & UI Primitives** *(Verified & Committed)*
-- [ ] **Step 1: Data Layer — Mongoose Models, Indexes, Seed & Typed API Client** *(Planned)*
+- [x] **Step 1: Data Layer — Mongoose Models, Indexes, Seed & Typed API Client** *(Verified & Committed)*
 - [ ] **Step 2: Authentication — Login, Token Rotation, Protected Routes** *(Planned)*
 - [ ] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Planned)*
 - [ ] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Planned)*
@@ -29,7 +29,7 @@ this plan — may name another project. Every component is described as somethin
 
 | Step | Scope | Backend commit | Frontend commit | Status |
 | ---- | ----- | -------------- | --------------- | ------ |
-| 0 | Bootstrap | — | — | Planned |
+| 0 | Bootstrap | `21c6760` | `301bae0` | Verified & Committed |
 | 1 | Data layer | — | — | Planned |
 | 2 | Auth | — | — | Planned |
 | 3 | Doctors | — | — | Planned |
@@ -116,29 +116,33 @@ shaped architecture. No feature logic and no database dependency in this step.
 ### Step 1: Data Layer — Mongoose Models, Indexes, Seed & Typed API Client
 **Goal**: One real MongoDB connection, validated schemas, deliberate indexes, and a typed
 contract both sides compile against.
-**⚠ Needs `MONGODB_URI` in `doctor-tracker-backend/.env` before this step can be verified.**
-**Status:** Planned
+**⚠ Needed `MONGODB_URI` in `doctor-tracker-backend/.env` — supplied and verified against a live
+TLS-protected hosted cluster on 2026-11-10.**
+**Status:** Verified & Committed
 
 #### Backend
-- [ ] **1.1** `src/configs/db.ts` — Mongoose connect with `autoIndex` off in production, retry/backoff, CA file support for a TLS-enforced hosted cluster, graceful disconnect.
-  - Verify: `npm run dev` logs a single "MongoDB connected" line for the actual host.
-- [ ] **1.2** `src/modules/user/user.model.ts` — `name`, unique lower-cased `email`, `password` (`select: false`), `role` enum `['admin']`, timestamps.
+- [x] **1.1** `src/configs/db.ts` — Mongoose connect with `autoIndex` off in production, retry/backoff, CA file support for a TLS-enforced hosted cluster, graceful disconnect.
+  - Verify: `npm run dev` logs a single "MongoDB connected" line for the actual host. Proven again
+    by `npm run db:inspect`, the read-only probe added with this step (counts, index list, plans).
+- [x] **1.2** `src/modules/user/user.model.ts` — `name`, unique lower-cased `email`, `password` (`select: false`), `role` enum `['admin']`, timestamps.
   - Verify: `db.users.getIndexes()` in a probe script.
-- [ ] **1.3** `src/modules/doctor/doctor.model.ts` — `name`, `specialization`, `hospital`, `phone`, `email` (unique), lowercase mirrors, timestamps. Indexes: `{ email: 1 }` unique, `{ phone: 1 }` unique, `{ nameLower: 1 }`, `{ specializationLower: 1 }`, `{ hospitalLower: 1 }`, `{ specialization: 1, createdAt: -1 }`, `{ createdAt: -1 }`.
+- [x] **1.3** `src/modules/doctor/doctor.model.ts` — `name`, `specialization`, `hospital`, `phone`, `email` (unique), lowercase mirrors, timestamps. Indexes: `{ email: 1 }` unique, `{ phone: 1 }` unique, `{ nameLower: 1 }`, `{ specializationLower: 1 }`, `{ hospitalLower: 1 }`, `{ specialization: 1, createdAt: -1 }`, `{ createdAt: -1 }`.
   - Verify: index list matches, duplicate email rejected with code 11000.
-- [ ] **1.4** `src/modules/patient/patient.model.ts` — `name`, `phone`, `email`, `gender`, `age`, `condition`, `notes`, `visitDate`, `doctorId` (ref, required), lowercase mirrors. Indexes: `{ doctorId: 1, visitDate: -1 }`, `{ condition: 1, visitDate: -1 }`, `{ visitDate: -1 }`, `{ nameLower: 1 }`, `{ phone: 1 }` unique, `{ emailLower: 1 }`.
+- [x] **1.4** `src/modules/patient/patient.model.ts` — `name`, `phone`, `email`, `gender`, `age`, `condition`, `notes`, `visitDate`, `doctorId` (ref, required), lowercase mirrors. Indexes: `{ doctorId: 1, visitDate: -1 }`, `{ condition: 1, visitDate: -1 }`, `{ visitDate: -1 }`, `{ nameLower: 1 }`, `{ phone: 1 }` unique, `{ emailLower: 1 }`.
   - Verify: `explain()` on a `doctorId` match shows `IXSCAN`; deleting a doctor leaves no orphan patients (documented policy).
-- [ ] **1.5** `src/scripts/seed.ts` — idempotent: upserts the admin, clears and refills sample doctors/patients with deterministic dates spread over ~90 days so charts and date filters have data.
+- [x] **1.5** `src/scripts/seed.ts` — idempotent: upserts the admin, clears and refills sample doctors/patients with deterministic dates spread over ~90 days so charts and date filters have data.
   - Verify: `npm run seed` twice → identical counts; counts printed.
-- [ ] **1.6** Shared response envelope helpers in `src/utils/apiHelpers.ts`: `parsePagination`, `parseDateRange`, `escapeRegex`, `formatPaginatedResponse`, `sendSuccess/sendError`.
+- [x] **1.6** Shared response envelope helpers in `src/utils/apiHelpers.ts`: `parsePagination`, `parseDateRange`, `escapeRegex`, `formatPaginatedResponse`, `sendSuccess/sendError`.
   - Verify: `npm run typecheck`.
 
 #### Frontend
-- [ ] **1.7** `src/types/{auth,doctor,patient,dashboard,api}.ts` mirroring the API DTOs, one source of truth for labels/filter option lists and badge variants.
+- [x] **1.7** `src/types/{auth,doctor,patient,dashboard,api}.ts` mirroring the API DTOs, one source of truth for labels/filter option lists and badge variants.
   - Verify: `npx tsc --noEmit`.
-- [ ] **1.8** `src/lib/api-client.ts` — browser fetch wrapper (`credentials: 'include'`, JSON, `cache: 'no-store'`, typed `ApiEnvelope<T>` unwrap, `ApiError` with status + field errors).
-  - Verify: a throwaway page fetches `/health` through it and renders `ok`.
-- [ ] **1.9** `src/lib/server-api.ts` — server-side fetch that forwards the incoming `cookie` header to `API_SERVER_URL` and exposes `apiGet/apiSend` for Server Components.
+- [x] **1.8** `src/lib/api-client.ts` — browser fetch wrapper (`credentials: 'include'`, JSON, `cache: 'no-store'`, typed `ApiEnvelope<T>` unwrap, `ApiError` with status + field errors). The readiness probe it needs is served at both `GET /health` (external monitors) and `GET /api/v1/health` (the base URL the web app is configured against).
+  - Verify: a throwaway page fetches `/health` through it and renders `ok` — on the server through
+    `lib/server-api.ts` and in the browser through `apiClient`, plus a 404 path that proves the
+    envelope message and status reach the caller.
+- [x] **1.9** `src/lib/server-api.ts` — server-side fetch that forwards the incoming `cookie` header to `API_SERVER_URL` and exposes `apiGet/apiSend` for Server Components.
   - Verify: `npm run build`.
 
 **Step 1 gate:** seed + index probes green against the real cluster, both repos typecheck/lint/build. → commit both.
@@ -364,14 +368,37 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 
 ## Blocked on the user
 
-- **`MONGODB_URI`** must be added to `doctor-tracker-backend/.env` before Step 1 verification
-  (and the CA file path if the cluster requires TLS, e.g. `certs/ca.pem`).
+- ~~`MONGODB_URI` must be added to `doctor-tracker-backend/.env`~~ — **done 2026-11-10**: a live
+  hosted cluster URI is in place, the API connects to it, and `npm run seed` has populated it.
+  `MONGODB_CA_FILE` stays empty because the cluster's certificate chains to a public root.
 - **Visual Evidence screenshots** in Step 8 are captured from the local dev server; if the
   browser tooling is unavailable the images are left as placeholders and flagged.
 - **Pushing to GitHub** is never done automatically; the commands are reported instead.
 
 ## Session log
 
+- **2026-11-10** — Step 1 verified and committed. `doctor-tracker-backend/.env` now holds a live
+  hosted-cluster URI (no CA file needed: the certificate chains to a public root), and
+  `npm run db:inspect` — the read-only probe added with this step — reports users 1 / doctors 12 /
+  patients 60. Index lists match the models exactly: `users` `email` unique; `doctors` unique
+  `email` + `phone`, the three lowercase mirrors, `{specialization:1,createdAt:-1}`, `{createdAt:-1}`;
+  `patients` `{doctorId:1,visitDate:-1}`, `{condition:1,visitDate:-1}`, `{visitDate:-1}`,
+  `nameLower`, unique `phone`, sparse `emailLower`. `EXPLAIN` (executionStats) on the three shapes
+  the portal will run: `doctors` search `^ana` → SORT › FETCH › IXSCAN, keys 2 / docs 1 / returned 1;
+  `patients` one roster page 2 (skip 2, limit 2) → LIMIT › FETCH › SKIP › IXSCAN, keys 4 / docs 2 /
+  returned 2; `patients` condition + date sort → LIMIT › FETCH › IXSCAN, keys 3 / docs 3 / returned 3.
+  No collection scans, and `docsExamined` never exceeds the window it returns. Duplicate doctor email
+  and duplicate patient phone are both rejected with `MongoServerError` code 11000 (Step 3 maps those
+  to 409), and a patient without `doctorId` fails schema validation before the write.
+  `npm run seed` twice → `created 0, unchanged 12`, `unchanged 60`, identical totals, and the second
+  run leaves the admin's stored hash untouched. Failure paths proved too: an unreachable URI logs
+  four backoff lines (400/800/1600/3200 ms) then exits 1, an empty `MONGODB_URI` exits 1 immediately.
+  Frontend: a throwaway probe page rendered `server-ok:ok:development` through `lib/server-api.ts`,
+  `browser-ok:ok:development` through `apiClient` in a real browser (so the cross-origin
+  `credentials: 'include'` call clears the CORS allow-list), and `error:404` carrying the API's own
+  message — the page was deleted after the run and `next build` prerenders the four real routes.
+  Two notes for later steps: password hashing uses the pure-JS bcrypt implementation (same API, no
+  native build step), and Mongoose 9 deprecates `validateSync()` in favour of `await validate()`.
 - **2026-11-10** — Step 0 verified and committed in both repositories. Backend: `lint`,
   `typecheck`, `build` green; `GET /health` returns the success envelope, an unknown path
   returns the 404 envelope, and the CORS allow-list answers with `Access-Control-Allow-Credentials`.
