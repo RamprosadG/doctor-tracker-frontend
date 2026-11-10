@@ -46,6 +46,10 @@ export interface PatientPayload {
   doctorId: string;
 }
 
+/** `POST /doctors/:doctorId/patients`: the same body with the assignment left to
+ *  the url, because the page that writes it is already about one doctor. */
+export type RosterPatientPayload = Omit<PatientPayload, "doctorId">;
+
 /**
  * Query parameters the patients list endpoint understands. A type alias rather
  * than an interface so a built query can be handed straight to the fetch

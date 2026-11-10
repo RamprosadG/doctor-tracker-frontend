@@ -204,7 +204,7 @@ function Owner({ patient, align = "left" }: { patient: Patient; align?: "left" |
   return (
     <span className={`flex min-w-0 flex-col gap-0.5 ${alignment}`}>
       <Link
-        href={`/doctors?search=${encodeURIComponent(patient.doctor.name)}`}
+        href={`/doctors/${patient.doctor.id}`}
         className="max-w-[220px] truncate font-medium text-indigo-700 underline-offset-2 hover:underline"
         title={patient.doctor.name}
       >

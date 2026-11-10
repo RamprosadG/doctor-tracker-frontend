@@ -20,7 +20,7 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 2: Authentication — Login, Token Rotation, Protected Routes** *(Verified & Committed)*
 - [x] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Verified & Committed)*
 - [x] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Verified & Committed)*
-- [ ] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Planned)*
+- [x] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Verified & Committed)*
 - [ ] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Planned)*
 - [ ] **Step 7: Performance, Hardening & End-to-End QA** *(Planned)*
 - [ ] **Step 8: Documentation, Visual Evidence & Release** *(Planned)*
@@ -33,8 +33,8 @@ this plan — may name another project. Every component is described as somethin
 | 1 | Data layer | `fe732a2` | `ec63f0d` | Verified & Committed |
 | 2 | Auth | `7e1ed5a` | `49b6d58` | Verified & Committed |
 | 3 | Doctors | `af95512` | `aaf2d6f` | Verified & Committed |
-| 4 | Patients | — | — | Verified & Committed |
-| 5 | Relations | — | — | Planned |
+| 4 | Patients | `ad2c786` | `7123928` | Verified & Committed |
+| 5 | Relations | — | — | Verified & Committed |
 | 6 | Dashboard | — | — | Planned |
 | 7 | Performance/QA | — | — | Planned |
 | 8 | Docs/Release | — | — | Planned |
@@ -392,27 +392,99 @@ TLS-protected hosted cluster on 2026-11-10.**
 
 ### Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists
 **Goal**: The spec's "view corresponding patients for each doctor / add / delete" flows.
-**Status:** Planned
+**Status:** Verified & Committed
 
 #### Backend
-- [ ] **5.1** `GET /doctors/:id` returning the doctor + `patientCount` via `$lookup`/`$count` (never a full roster load).
-  - Verify: response has no patients array; count matches `countDocuments({ doctorId })`.
-- [ ] **5.2** `GET /doctors/:doctorId/patients` — paginated + searchable + date-filtered sub-list scoped to the doctor, 404 when the doctor is missing.
-  - Verify: page 2 stays within the doctor's roster; another doctor's patient never appears.
-- [ ] **5.3** `POST /doctors/:doctorId/patients` — body `doctorId` is taken from the path, not the client, so a patient cannot be attached to the wrong doctor.
-  - Verify: a conflicting body `doctorId` cannot override the path value.
-- [ ] **5.4** `DELETE /doctors/:doctorId/patients/:patientId` — removes the link only when both ids match.
-  - Verify: mismatched pair returns 404 and changes nothing.
+- [x] **5.1** `GET /doctors/:id` returning the doctor + `patientCount` via `$lookup`/`$count` (never a full roster load).
+  - The DTO already carried `patientCount` from Step 3, so this item is the detail read: the doctor document and
+    the count are two statements, and neither one reads roster rows.
+  - Deviation: the plan sketched a `$lookup`/`$count` aggregation for the single-doctor read; it is
+    `findById` plus `Patient.countDocuments({ doctorId })` instead. Same guarantee — no roster array can reach
+    the response — and the count rides the `doctorId` index rather than a join over every patient.
+  - Verify: `PASS the response carries no patients array… → patientCount` and `PASS the count equals
+    countDocuments({ doctorId }) on the cluster → api 5 / db 5`; the payload is exactly
+    `id,name,specialization,hospital,phone,email,patientCount,createdAt,updatedAt`; unknown id → 404, malformed
+    → 400 on the `id` field; the roster is `401` without a session.
+- [x] **5.2** `GET /doctors/:doctorId/patients` — paginated + searchable + date-filtered sub-list scoped to the doctor, 404 when the doctor is missing.
+  - `patient.roster.route.ts` is a `Router({ mergeParams: true })` mounted from the doctor router, and it calls
+    the same `listPatients` the flat endpoint uses with the path's `doctorId` merged in last — one pipeline, so
+    the roster cannot drift from the patients page on search arms, sort whitelist or projection. A doctor who is
+    not in the practice is a 404, not an empty list, because an empty list claims the roster exists and is bare.
+  - Verify: `PASS … paginates the roster the same way…  → items 2 / total 5 / pages 3`, `PASS page 2 stays
+    inside the roster and shows different rows`, `PASS every row names the doctor from the url → 4 rows, one
+    owner`, `PASS a doctorId in the query string is overridden by the one in the path`, `PASS search narrows
+    within the roster and never leaves it → "Elen" → 1 of 5`, `PASS a visit-date window applies…`, and
+    `PASS a doctor who is not in the practice is a 404 rather than an empty list, and a malformed id is a 400 on
+    doctorId`.
+- [x] **5.3** `POST /doctors/:doctorId/patients` — body `doctorId` is taken from the path, not the client, so a patient cannot be attached to the wrong doctor.
+  - `rosterCreatePatientSchema = createPatientSchema.omit({ doctorId: true })` strips the field before the
+    service ever sees it, and the service writes `createPatient({ ...input, doctorId })` with the path value. The
+    path is the only authority because a body key cannot survive validation, not because the handler overwrites
+    one it trusts.
+  - Verify: `PASS POST … needs no doctorId in the body → 201 … → Ananya Rao`, `PASS a body naming another doctor
+    cannot override the path → 201 → doctor A`, `PASS both writes landed on the path doctor, so its count moved
+    by two → 5 → 7`, `PASS a body still has to satisfy every other rule, and the errors name the fields → 400
+    name,gender,age,condition`, `PASS a duplicate phone is a 409 pinned to the phone field on the nested route
+    too`, `PASS the rejected writes changed nothing → doctor B stays at 5`.
+- [x] **5.4** `DELETE /doctors/:doctorId/patients/:patientId` — removes the link only when both ids match.
+  - `findOneAndDelete({ _id, doctorId })` — one statement, both ids in the filter. When nothing is removed the
+    route re-reads the patient to answer honestly: a row that exists under another doctor says so rather than
+    pretending the id was wrong.
+  - Verify: `PASS a mismatched doctor/patient pair is a 404 that removes nothing → 404 "That patient is on
+    another doctor's list, so nothing was removed." / row still 200`, `PASS a malformed patientId is a 400 naming
+    the field`, `PASS the matching pair removes that one row and reports who went`, `PASS the same delete twice
+    is a 404`, and `PASS the probe leaves the cluster exactly as it found it → patients 60 → 60, leftovers 0`.
 
 #### Frontend
-- [ ] **5.5** `/doctors/[id]/page.tsx` — doctor profile header (name, specialization, hospital, phone, email, joined date, patient count) with quiet caption/label styling.
-  - Verify: invalid id renders `not-found`, not an error boundary.
-- [ ] **5.6** `DoctorPatientsSection` — paginated/searchable patient table scoped to the doctor, "Add Patient" prefilled with that doctor, "Remove from list" confirm.
-  - Verify: add and remove change the doctor's count and the main patients page consistently.
-- [ ] **5.7** Cross-links: doctors table → detail, patient row → its doctor, breadcrumb back to `/doctors`.
-  - Verify: every navigation round-trip preserves scroll-free loading state.
+- [x] **5.5** `/doctors/[id]/page.tsx` — doctor profile header (name, specialization, hospital, phone, email, joined date, patient count) with quiet caption/label styling.
+  - `page.tsx` stays a sync server page handing `params` + `searchParams` to `DoctorDetailContent`, which reads
+    the doctor and the roster with `Promise.allSettled` and returns a tagged `DoctorDetailRead`
+    (`unknown` / `unreachable` / `read`). `notFound()` is raised from that tag rather than from a `catch`, so the
+    router's own control-flow error is never swallowed; a failed roster still renders the header, with the API's
+    sentence in a banner over an empty table. The facts row is four `FieldCaption`/`dd` pairs — phone, email,
+    hospital, joined — under a hairline, not four cards.
+  - Deviation: the header sentence counts the patients and stops there. It first claimed "most recent visit
+    first", which the sort dropdown contradicts a moment later — the order belongs to the control that changes
+    it, not to a sentence that cannot be trusted after a sort.
+  - Verify: `GET /doctors/6af2…ef33` serves `Priya Nair` + "Orthopaedics at Lakeside Community Hospital. 5
+    patients on this list." and all five rows before any script runs, every row's doctor cell linking to the
+    page's own id; `/doctors/000000000000000000000000` and `/doctors/not-an-id` both render the app's 404 panel
+    — `404 / This page does not exist / Back to Dashboard` — not an error boundary.
+- [x] **5.6** `DoctorPatientsSection` — paginated/searchable patient table scoped to the doctor, "Add Patient" prefilled with that doctor, "Remove from list" confirm.
+  - Deviation: it is a page, not a section — `DoctorDetailView` + `DoctorRosterFilters` beside the reused
+    `PatientsTable`, `Pagination` and `PatientFormModal`. The filter bar keeps search, the visit-date window and
+    the sort dropdown and drops condition, gender and the doctor select, which compare across the clinic rather
+    than within one list; `PatientFormModal` grew a `rosterDoctorId` prop that seeds the dialog, disables the
+    doctor dropdown and routes the create through the nested POST. The dialog mounts only while open, so the
+    pinned choice cannot leak into the next patient.
+  - Deviation: an edit reached from a roster PATCHes `/patients/:id` with the doctor pinned to the page it was
+    opened from, so the one write the spec did not gate behind a nested route still cannot move a patient.
+  - Verify: `?pageSize=2` → "Showing 1 to 2 of 5 entries" with Previous disabled → Next →
+    `?page=2&pageSize=2` "Showing 3 to 4 of 5" → browser Back returns page 1 with the rows that belong to it;
+    typing "Bruno" lands on `?search=Bruno&pageSize=2` with 1 row and **1** `_rsc` request; Reset clears the
+    filters and keeps the page size, as on `/patients`; `?from=2026-09-01&to=2026-09-30&sort=name&doctorId=<another doctor>`
+    serves exactly the two September rows in A→Z order and both still name the path doctor. Add →
+    `POST /api/v1/doctors/…ef33/patients → 201`, toast "QA Roster Probe was added to the practice.", header 5 → 6,
+    `/patients` 60 → 61, `/doctors` count cell 6; edit → `PATCH /api/v1/patients/…439f → 200` with the doctor
+    field disabled and showing that doctor; remove → `DELETE /api/v1/doctors/…ef33/patients/…43a0 → 200`, header
+    back to 5. Each mutation is followed by exactly one `_rsc` revalidation and no client-side list fetch.
+  - Deviation found by that pass: an empty roster said "has no patients on this list yet" while a filter was
+    applied. It now reads "No patients on this list match these filters." whenever the URL carries state — the
+    same `hasQueryState` that decides whether Reset appears, so the message and the control agree.
+- [x] **5.7** Cross-links: doctors table → detail, patient row → its doctor, breadcrumb back to `/doctors`.
+  - Both faces of `DoctorsTable` make the count itself the link ("See Priya Nair's patients"), and the doctor
+    cell of `PatientsTable` points at `/doctors/:id` instead of the Step 4 `?search=` stopgap; the detail page
+    opens with a `Doctors / <name>` breadcrumb.
+  - Verify: `/patients` rows link their doctor, `/doctors?search=Priya` links count → `/doctors/…ef33`, and the
+    detail's breadcrumb links back — round trips preserve the filters each page carries rather than reloading a
+    bare list. Measured through an overlay frame at 1280, 768 and 375 CSS px: `scrollWidth == clientWidth`
+    (1265/1265, 753/753, 360/360) with no element crossing the edge, the table visible and the cards hidden at
+    desktop and tablet, the facts row 4 columns at 1280 and 2 at 375.
 
-**Step 5 gate:** relation matrix verified against seeded data. → commit both.
+**Step 5 gate:** relation matrix verified against seeded data — roster contract probe **28/28** (including the
+path-over-body and cross-doctor delete cases), add/edit/remove proven in the browser on the nested routes with
+the counts agreeing across three surfaces, both id shapes rendering the 404 panel, no overflow at 1280 / 768 /
+375 px, lint/typecheck clean in both repos and a production build of the app compiling every new route. → commit both.
 
 ---
 
@@ -525,6 +597,52 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 - **Pushing to GitHub** is never done automatically; the commands are reported instead.
 
 ## Session log
+
+- **2026-11-10** — Step 5 verified and committed. Backend `dist/probe-roster.mjs`: **28/28** against the live
+  cluster — the detail route answers `patientCount` and no patients array, its value equal to
+  `countDocuments({ doctorId })` (5), and its field list is exactly
+  `id,name,specialization,hospital,phone,email,patientCount,createdAt,updatedAt`; the nested list paginates like
+  the flat one (`items 2 / total 5 / pages 3`), page 2 stays inside the roster with different rows, every row
+  names the doctor from the url, a `doctorId` in the query string is overridden by the one in the path, `?search=Elen`
+  narrows to 1 of 5 without leaving the roster, a visit-date window applies, an absent doctor is 404 where a
+  malformed one is 400 on `doctorId`, and the roster is 401 without a session; the nested `POST` needs no
+  `doctorId` in the body, a body naming another doctor cannot override the path, both writes land on the path
+  doctor (5 → 7), a five-field-invalid body still names every field, a duplicate phone 409s onto the phone field,
+  and the rejected writes change nothing; a mismatched doctor/patient `DELETE` pair 404s with "That patient is on
+  another doctor's list, so nothing was removed." and leaves the row readable, a malformed `patientId` is a 400
+  naming the field, the matching pair removes exactly one row and reports the name, the same delete twice is a
+  404, and the probe leaves the cluster at 60 patients with no leftovers. Frontend, in a real browser against
+  `:3000` + `:5000` as the throwaway fixture admin: `GET /doctors/6af2…ef33` serves "Priya Nair", the
+  specialization/hospital sentence, the four fact captions and all five rows before any script runs, each row's
+  doctor cell pointing at the page's own id; `?pageSize=2` → "Showing 1 to 2 of 5 entries" with Previous disabled,
+  Next → `?page=2&pageSize=2` "Showing 3 to 4 of 5", Back → page 1's rows; "Bruno" → `?search=Bruno&pageSize=2`,
+  1 row, **1** `_rsc` request; Reset clears the filters and keeps the page size; and the deep link
+  `?from=2026-09-01&to=2026-09-30&sort=name&doctorId=<another doctor>` serves exactly the two September rows in
+  A→Z order, both still owned by the path doctor. Writes through the nested routes: `POST
+  /api/v1/doctors/…ef33/patients → 201` moved the header 5 → 6, `/patients` 60 → 61 and the `/doctors` count cell to
+  6, each followed by one `_rsc` revalidation and no client-side list fetch; the roster's edit dialog opens with
+  the doctor dropdown disabled on that name and `PATCH /api/v1/patients/…439f → 200` kept the row on the same
+  roster; `DELETE /api/v1/doctors/…ef33/patients/…43a0 → 200` returned the header to 5. Both id shapes
+  (`000000000000000000000000`, `not-an-id`) render the app's 404 panel — "This page does not exist" with "Back to
+  Dashboard" — not an error boundary, and no element crossed the viewport edge at 1280, 768 or 375 CSS px
+  (`1265/1265`, `753/753`, `360/360` `scrollWidth == clientWidth`) with the table visible on the wide faces, the
+  cards on the narrow one and the facts row 4 columns → 2. Deviations recorded in place: 5.6 is a page
+  (`DoctorDetailView` + `DoctorRosterFilters`) rather than a `DoctorPatientsSection`, and the roster bar drops the
+  condition, gender and doctor selects because they compare across the clinic; the single-doctor count is
+  `findById` + `countDocuments` on the `doctorId` index rather than a `$lookup`/`$count` aggregation; a roster edit
+  goes through the flat `PATCH`, which is why the dialog pins the doctor instead of hiding the field;
+  `DoctorDetailContent` returns a tagged `DoctorDetailRead` and raises `notFound()` from the tag so the router's
+  own control-flow error is never swallowed; the dialog's option lists are synthesised from the doctor on this
+  page rather than fetching the clinic-wide `meta/filters`. Two things the browser pass caught and fixed before
+  committing: the header claimed "most recent visit first" a moment before the sort dropdown contradicted it, and a
+  roster empty *because of a filter* said the doctor had no patients at all — it now keys off the same
+  `hasQueryState` that decides whether Reset shows. QA hygiene: the browser ran on the fixture admin created and
+  dropped by `dist/qa-user.mjs` (teardown `sessions cleared: 1`), the fixture patient was written through the UI
+  and removed through the nested DELETE,
+  `dist/qa-count.mjs` then reported 12 doctors / 60 patients / 5 per doctor with no `QA `-prefixed rows, and the
+  real seeded admin's credentials were never read, printed or served. Backend `lint`, `typecheck`, `build` and
+  frontend `lint`, `tsc --noEmit`, `build` all green; the build took the scratch-`distDir` route again and reported
+  `/doctors/[id]` as `◐` partial prerender beside the two `ƒ` list pages.
 
 - **2026-11-10** — Step 4 verified and committed. Backend `dist/probe-patients.mjs`: **47/47** against the live
   cluster — `meta/filters` answers 33 distinct conditions and all 12 assignable doctors, both ordered; the list

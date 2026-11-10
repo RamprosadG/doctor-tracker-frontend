@@ -1,4 +1,5 @@
 import Badge from "@/components/ui/badges/Badge";
+import Link from "next/link";
 import DataTable, { type Column } from "@/components/ui/tables/DataTable";
 import FieldCaption from "@/components/ui/filters/FieldCaption";
 import {
@@ -99,13 +100,21 @@ export default function DoctorsTable({
     {
       key: "patientCount",
       header: "Patients",
+      // The count is the way into the roster: a number on this page is a list
+      // the reader can ask for, so it is offered as one.
       render: (doctor) => (
-        <span className="tabular-nums text-slate-700">
-          {doctor.patientCount ?? 0}
-          <span className="ml-1 text-xs text-slate-500">
-            {(doctor.patientCount ?? 0) === 1 ? "record" : "records"}
+        <Link
+          href={`/doctors/${doctor.id}`}
+          className="text-slate-700 underline-offset-2 hover:text-indigo-700 hover:underline"
+          title={`See ${doctor.name}'s patients`}
+        >
+          <span className="tabular-nums">
+            {doctor.patientCount ?? 0}
+            <span className="ml-1 text-xs text-slate-500">
+              {(doctor.patientCount ?? 0) === 1 ? "record" : "records"}
+            </span>
           </span>
-        </span>
+        </Link>
       ),
     },
     {
@@ -166,7 +175,15 @@ export default function DoctorsTable({
               <dt>
                 <FieldCaption>Patients</FieldCaption>
               </dt>
-              <dd className="text-sm tabular-nums text-slate-700">{doctor.patientCount ?? 0}</dd>
+              <dd className="text-sm tabular-nums">
+                <Link
+                  href={`/doctors/${doctor.id}`}
+                  className="text-slate-700 underline-offset-2 hover:text-indigo-700 hover:underline"
+                  title={`See ${doctor.name}'s patients`}
+                >
+                  {doctor.patientCount ?? 0}
+                </Link>
+              </dd>
             </div>
           </dl>
         </div>

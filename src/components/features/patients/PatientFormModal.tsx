@@ -7,7 +7,7 @@ import Input from "@/components/ui/inputs/Input";
 import Modal from "@/components/ui/modals/Modal";
 import Textarea from "@/components/ui/inputs/Textarea";
 import { showErrorAlert, showSuccessAlert } from "@/components/ui/alerts/Alerts";
-import { createPatient, updatePatient } from "@/lib/patients-client";
+import { createPatient, createRosterPatient, updatePatient } from "@/lib/patients-client";
 import { apiFieldErrors, apiMessage } from "@/lib/api-client";
 import {
   COMMON_CONDITIONS,
@@ -25,6 +25,10 @@ interface PatientFormModalProps {
   /** The assignable doctors and the stored conditions, from the same read that
    *  fills the filter row, so the form and the filters never disagree. */
   filterOptions: PatientFilterOptions;
+  /** Set on a doctor's own page. The assignment then comes from the url: the
+   *  field is fixed to that doctor and a new record is written through the
+   *  nested route, so nothing this form sends can move the patient elsewhere. */
+  rosterDoctorId?: string;
   onClose: () => void;
   /** Called after a successful write, so the list revalidates and closes. */
   onSaved: () => void;
@@ -116,7 +120,10 @@ function toDateInputValue(iso: string): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-const toFormValues = (patient: Patient | null): PatientFormValues =>
+const toFormValues = (
+  patient: Patient | null,
+  rosterDoctorId?: string,
+): PatientFormValues =>
   patient
     ? {
         name: patient.name,
@@ -129,7 +136,7 @@ const toFormValues = (patient: Patient | null): PatientFormValues =>
         visitDate: toDateInputValue(patient.visitDate),
         doctorId: patient.doctorId,
       }
-    : EMPTY_FORM;
+    : { ...EMPTY_FORM, doctorId: rosterDoctorId ?? "" };
 
 /**
  * Mounted only while the dialog is open, which is what lets the form seed
@@ -140,14 +147,32 @@ const toFormValues = (patient: Patient | null): PatientFormValues =>
 function PatientForm({
   patient,
   filterOptions,
+  rosterDoctorId,
   onClose,
   onSaved,
-}: Pick<PatientFormModalProps, "patient" | "filterOptions" | "onClose" | "onSaved">) {
-  const [values, setValues] = useState<PatientFormValues>(() => toFormValues(patient));
+}: Pick<
+  PatientFormModalProps,
+  "patient" | "filterOptions" | "rosterDoctorId" | "onClose" | "onSaved"
+>) {
+  const [values, setValues] = useState<PatientFormValues>(() => toFormValues(patient, rosterDoctorId));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const doctorChoices = useMemo(() => {
+    // On a doctor's own page the assignment is the url, so the field offers that
+    // one name: the choice a reader cannot change is not worth a list.
+    if (rosterDoctorId) {
+      return [
+        {
+          value: rosterDoctorId,
+          label:
+            filterOptions.doctors.find((doctor) => doctor.id === rosterDoctorId)?.name ??
+            patient?.doctor?.name ??
+            "This doctor",
+        },
+      ];
+    }
+
     const choices = filterOptions.doctors.map((doctor) => ({
       value: doctor.id,
       label: doctor.name,
@@ -161,7 +186,7 @@ function PatientForm({
       { value: assigned, label: patient?.doctor?.name ?? "Doctor no longer listed" },
       ...choices,
     ];
-  }, [filterOptions.doctors, patient?.doctor?.name, values.doctorId]);
+  }, [filterOptions.doctors, patient?.doctor?.name, rosterDoctorId, values.doctorId]);
 
   const setValue = (field: keyof PatientFormValues, value: string): void => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -205,9 +230,15 @@ function PatientForm({
 
     setIsSubmitting(true);
     try {
+      // On a roster page the write goes to the nested route, whose url already
+      // names the doctor. The body still carries the field the form set, and the
+      // API has no slot for it: the path is the assignment, which is what the
+      // probe that pins a conflicting body proves.
       const saved = patient
         ? await updatePatient(patient.id, payload)
-        : await createPatient(payload);
+        : rosterDoctorId
+          ? await createRosterPatient(rosterDoctorId, payload)
+          : await createPatient(payload);
 
       showSuccessAlert(
         patient ? `${saved.name} was updated.` : `${saved.name} was added to the practice.`,
@@ -313,7 +344,10 @@ function PatientForm({
           name="patient-doctor"
           label="Assigned doctor"
           required
-          searchable
+          // Pinned on a roster page: the url already chose, so there is one name
+          // to show and nothing to search through.
+          searchable={!rosterDoctorId}
+          disabled={Boolean(rosterDoctorId)}
           searchPlaceholder="Search doctors..."
           placeholder="Select a doctor"
           options={doctorChoices}
@@ -369,6 +403,7 @@ export default function PatientFormModal({
   isOpen,
   patient,
   filterOptions,
+  rosterDoctorId,
   onClose,
   onSaved,
 }: PatientFormModalProps) {
@@ -381,6 +416,7 @@ export default function PatientFormModal({
       <PatientForm
         patient={patient}
         filterOptions={filterOptions}
+        rosterDoctorId={rosterDoctorId}
         onClose={onClose}
         onSaved={onSaved}
       />
