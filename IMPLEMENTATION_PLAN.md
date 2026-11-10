@@ -21,7 +21,7 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Verified & Committed)*
 - [x] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Verified & Committed)*
 - [x] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Verified & Committed)*
-- [ ] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Planned)*
+- [x] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Verified — uncommitted)*
 - [ ] **Step 7: Performance, Hardening & End-to-End QA** *(Planned)*
 - [ ] **Step 8: Documentation, Visual Evidence & Release** *(Planned)*
 
@@ -34,8 +34,8 @@ this plan — may name another project. Every component is described as somethin
 | 2 | Auth | `7e1ed5a` | `49b6d58` | Verified & Committed |
 | 3 | Doctors | `af95512` | `aaf2d6f` | Verified & Committed |
 | 4 | Patients | `ad2c786` | `7123928` | Verified & Committed |
-| 5 | Relations | — | — | Verified & Committed |
-| 6 | Dashboard | — | — | Planned |
+| 5 | Relations | `ca48d87` | `665aa13` | Verified & Committed |
+| 6 | Dashboard | — | — | Verified (uncommitted) |
 | 7 | Performance/QA | — | — | Planned |
 | 8 | Docs/Release | — | — | Planned |
 
@@ -490,29 +490,33 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
 
 ### Step 6: Dashboard & Analytics — Recharts Visual Insights
 **Goal**: Meaningful aggregation with real database pipelines, rendered as charts.
-**Status:** Planned
+**Status:** Verified (uncommitted)
 
 #### Backend
-- [ ] **6.1** `dashboard.service.ts` — `getSummaryDB()`: total doctors, total patients, average patients per doctor, new this month, doctors with zero patients. Built from `countDocuments` + one `$group`, no list fetch.
-  - Verify: numbers equal hand-run `mongosh` counts.
-- [ ] **6.2** `getChartsDB(range)` — patients per doctor (top N), registrations per day/month, patient distribution by specialization, distribution by condition — issued concurrently with `Promise.all`, each capped and index-backed.
-  - Verify: `EXPLAIN` shows index use; response time stays flat as rows grow.
-- [ ] **6.3** `GET /dashboard/summary` (always unfiltered) and `GET /dashboard/charts?range=7d|30d|90d|12m` with whitelisted range validation.
-  - Verify: a filter applied on a list page never changes `/dashboard/summary`.
+- [x] **6.1** `dashboard.service.ts` — `getDashboardSummary()`: total doctors, total patients, average patients per doctor, new this month, doctors with zero patients. `countDocuments` plus one occupied-owner grouping; no full list fetch.
+  - Verify: `npx tsx src/scripts/verify-dashboard.ts` compares independent database counts in a disposable namespace. Optional live checks use explicitly supplied `DASHBOARD_QA_EMAIL` / `DASHBOARD_QA_PASSWORD`, not seeded admin credentials.
+  - Observed live: 12 doctors, 60 patients, average 5, 9 new this UTC month, 0 doctors without patients.
+- [x] **6.2** `getDashboardCharts(range)` — four concurrent, capped aggregation pipelines. All measure patient `createdAt`, not visit date, over inclusive UTC calendar days (7/30/90) or the current month plus 11 preceding months.
+  - Verify: the same script explains the real pipelines and compares each series against an independent fixture oracle; daily/monthly buckets are zero-filled.
+  - `dashboard_registrations` covers `{createdAt:1, doctorId:1, condition:1}`. All four inputs use covered `IXSCAN`; owner lookups use `_id_`; occupied owners use `DISTINCT_SCAN`. Caps are top 8 doctors/conditions and top 7 specializations plus Other.
+  - Growth check: adding 2,000 out-of-window rows kept each input at 181 examined keys / 0 patient documents; median request time 46 ms → 45 ms. Exact aggregation still scales with **matching** rows, so the original constant-time claim is narrowed to out-of-window growth rather than claimed universally. Deploy the new index before enabling the hinted queries in production.
+- [x] **6.3** `GET /dashboard/summary` ignores every filter; `GET /dashboard/charts?range=7d|30d|90d|12m` validates its whitelist and defaults to `30d`. Both require an admin session.
+  - Verify: **192 checks passed**, including HTTP 200/400/401/403, repeated/blank/invalid ranges, filter-independent summary, empty collections, leap day, DST, year boundaries, duplicate doctor names, caps and stable ordering.
 
 #### Frontend
-- [ ] **6.4** `/` → `DashboardContent` (Server Component, guarded) → `DashboardView` with a KPI `StatCard` grid fed by `/dashboard/summary`.
-  - Verify: cards show totals for all rows while tables elsewhere are filtered.
-- [ ] **6.5** `components/features/dashboard/charts/*` — `PatientsPerDoctorChart` (Bar), `RegistrationsTrendChart` (Area/Line), `SpecializationShareChart` (Pie), `ConditionMixChart` (horizontal Bar) on Recharts with `ResponsiveContainer`.
-  - Verify: each chart renders real seeded numbers, tooltips work, no SSR window error.
-- [ ] **6.6** Dynamic-import the chart bundle (`ssr: false`) with skeletons; memoize derived series so parent updates do not re-render charts.
-  - Verify: first paint HTML contains skeletons, not chart SVG; React Profiler shows no extra chart commits on filter change.
-- [ ] **6.7** Range switcher in the URL (`?range=30d`), recent-activity panel, empty state when there is no data yet.
-  - Verify: switching range refetches only the charts endpoint.
-- [ ] **6.8** Responsive layout: 4 KPIs across on desktop, 2 on tablet, charts stack on mobile without clipping axis labels.
-  - Verify: measured at 1440 / 768 / 375 px.
+- [x] **6.4** `/` → guarded `DashboardContent` → server-rendered `DashboardView` with four `StatCard`s; doctors without patients is the doctor card's subtitle.
+  - Verify: HTML contains the real totals and recent visits; filtered doctor/patient pages leave the global summary at 12 / 60 / 5 / 9 / 0. A failed panel does not substitute misleading zero totals.
+- [x] **6.5** Four Recharts components inside `ResponsiveContainer`, with accessible expandable value lists and full-label tooltips.
+  - Verify: seeded chart totals are 7 / 23 / 60 / 60 for 7d / 30d / 90d / 12m. All four tooltips were exercised; real browser console and runtime errors are empty. Desktop and mobile captures show the plots.
+- [x] **6.6** Client-only dynamic chart bundle (`ssr:false`) with matching skeletons; memoized chart components and derived series.
+  - Verify: raw authenticated HTML has `Loading charts` and no `recharts-surface`. Temporary React Profiler instrumentation measured **zero** chart commits during a paused range request; the returned series then caused two updates and one Recharts nested update. Instrumentation was removed before final gates.
+- [x] **6.7** Native-history URL range controls, cancellation of superseded fetches, retry/error and empty states, and an independent five-row recent-visits panel from the existing paginated patient endpoint.
+  - Verify: changing range produced exactly one `/dashboard/charts` request and no summary, patient-list or RSC request. All ranges, Back, rapid changes, invalid-URL default, simulated 503 → retry and empty-range states passed.
+  - Server snapshots receive a fresh analytics key: an actual create → `router.refresh()` changed both total patients 60 → 61 and the chart total 23 → 24; the owned fixture was removed. This closes the review finding where preserved client state ignored refreshed server chart props.
+- [x] **6.8** Four KPI columns at 1440 px, two at 768/375 px; charts stack on narrower screens.
+  - Verify: at 1440 / 768 / 375, document `scrollWidth == clientWidth` was 1425 / 753 / 360; all four plots had positive dimensions, axis-label overflow was zero and range buttons measured 44 px high. Captures were inspected at desktop and mobile.
 
-**Step 6 gate:** dashboard correctness proven against the database, charts visually verified on both faces. → commit both.
+**Step 6 gate:** implementation and verification passed; both repositories remain uncommitted pending an explicit commit request. No push performed.
 
 ---
 
@@ -535,6 +539,7 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
   - Verify: Profiler shows row-level re-renders only on mutation.
 - [ ] **7.6** State/UX pass: loading skeletons, empty states, error states with retry, optimistic-free but non-blocking refresh, focus rings, aria labels, keyboard modal close.
   - Verify: each list page exercised with the network throttled and with an empty collection.
+  - Follow-up observed before Step 6 QA: stale cookies belonging to a deleted/expired QA session caused `/login` ↔ `/` redirects. Logout cleared them for testing; reproduce and resolve the existing session-gate loop during this hardening pass.
 - [ ] **7.7** Responsive QA sweep at 375 / 768 / 1024 / 1440 px for login, dashboard, doctors, doctor detail, patients.
   - Verify: zero horizontal overflow, tap targets ≥ 44 px on mobile.
 - [ ] **7.8** Full QA run as an engineer would: create → search → filter → paginate → edit → reassign → delete on both entities, plus chart accuracy against the same data set.
@@ -597,6 +602,26 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 - **Pushing to GitHub** is never done automatically; the commands are reported instead.
 
 ## Session log
+
+- **2026-11-10** — Step 6 implemented and verified, **not committed**. Added protected dashboard summary/chart
+  endpoints, a covering registration index, and `src/scripts/verify-dashboard.ts`; the final run passed **192**
+  assertions against an owned disposable database and the running API. Live reads used explicit throwaway QA
+  credentials; cleanup removed the probe's own session. All four chart inputs used covered index scans; a
+  2,000-row out-of-window growth test preserved examined-key counts and returned identical series (46 ms →
+  45 ms median on this run, not a universal latency guarantee). The frontend now has guarded server-rendered
+  KPIs/recent visits, a lazy Recharts bundle, URL ranges, accessible values, retry and empty states. Browser QA
+  passed all ranges, history, rapid switching, tooltips, filtered-page regression checks and simulated
+  outage/recovery; range changes issued only the charts request. Temporary React Profiler measured zero chart
+  commits for pending parent updates and was removed afterward. Review found stale initial chart props after
+  `router.refresh()`; a per-server-snapshot key fixed it, verified twice with a real owned patient create →
+  refresh → delete. Desktop and mobile screenshots were inspected after waiting for actual SVG paths (not
+  merely SVG containers); 1440/768/375 measurements showed no document or chart-label overflow. Backend and
+  frontend lint, typecheck and build all passed; frontend build output was isolated from the running dev
+  server, and temporary config/TypeScript changes were restored. `npm audit --omit=dev` reported zero
+  production advisories; the install reported seven moderate development advisories, not auto-fixed here.
+  Final cleanup removed the QA user and 11 owned sessions; counts are 12 doctors / 60 patients, with no QA
+  patients or QA users left. The pre-existing stale-cookie redirect issue is recorded under 7.6. No push
+  performed; Step 7 is the next implementation step, and the Step 6 commits await an explicit request.
 
 - **2026-11-10** — Step 5 verified and committed. Backend `dist/probe-roster.mjs`: **28/28** against the live
   cluster — the detail route answers `patientCount` and no patients array, its value equal to
