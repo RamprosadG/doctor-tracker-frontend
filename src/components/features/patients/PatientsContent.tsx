@@ -38,7 +38,7 @@ const NO_OPTIONS: PatientFilterOptions = { conditions: [], doctors: [] };
 async function readPatients(query: PatientListQuery): Promise<PatientsRead> {
   const [listResult, optionsResult] = await Promise.allSettled([
     fetchPatientList(query),
-    fetchPatientFilterOptions(),
+    fetchPatientFilterOptions(query.doctorId),
   ]);
 
   const filterOptions =

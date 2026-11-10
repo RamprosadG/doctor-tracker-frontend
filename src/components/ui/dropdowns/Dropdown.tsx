@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { IoIosArrowDown, IoIosStar } from "react-icons/io";
 
@@ -9,8 +9,28 @@ export interface DropdownOption {
   label: string;
 }
 
+export type DropdownOptionsLoader = (
+  query: { search: string; page: number },
+  signal: AbortSignal,
+) => Promise<{ options: DropdownOption[]; hasNextPage: boolean }>;
+
+interface RemoteRequest {
+  search: string;
+  page: number;
+  delay: number;
+}
+
+interface RemoteResult {
+  request: RemoteRequest;
+  options: DropdownOption[];
+  hasNextPage: boolean;
+  error?: string;
+}
+
 interface DropdownProps {
   label?: string;
+  ariaLabel?: string;
+  /** Initial labels; an empty-value choice also remains available when remote. */
   options: DropdownOption[];
   value?: string;
   onChange: (value: string) => void;
@@ -27,6 +47,9 @@ interface DropdownProps {
    *  caller keeps the plain listbox. */
   searchable?: boolean;
   searchPlaceholder?: string;
+  searchLabel?: string;
+  /** Fetches only the requested page. Remote results are never filtered locally. */
+  loadOptions?: DropdownOptionsLoader;
 }
 
 interface MenuPosition {
@@ -47,6 +70,7 @@ const MENU_OFFSET = 4;
  */
 const Dropdown: React.FC<DropdownProps> = ({
   label,
+  ariaLabel,
   options,
   value,
   onChange,
@@ -60,25 +84,100 @@ const Dropdown: React.FC<DropdownProps> = ({
   disabled = false,
   searchable = false,
   searchPlaceholder = "Search...",
+  searchLabel,
+  loadOptions,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [term, setTerm] = useState("");
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
+  const [portalTarget, setPortalTarget] = useState<HTMLElement | null>(null);
+  const [request, setRequest] = useState<RemoteRequest | null>(null);
+  const [remoteResult, setRemoteResult] = useState<RemoteResult | null>(null);
+  const [lastSelection, setLastSelection] = useState<DropdownOption | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  const controllerRef = useRef<AbortController | null>(null);
+  const generatedId = useId();
+  const triggerId = id ?? name ?? generatedId;
+  const listboxId = `${generatedId}-options`;
 
-  const selectedOption = options.find((option) => option.value === value);
+  const selectedOption = options.find((option) => option.value === value) ??
+    (loadOptions && lastSelection?.value === value ? lastSelection : undefined) ??
+    (loadOptions ? remoteResult?.options.find((option) => option.value === value) : undefined);
+  const isLoading = Boolean(loadOptions && request && remoteResult?.request !== request);
+  const loadError = !isLoading ? remoteResult?.error : undefined;
+  // Hide the previous search immediately, including during the debounce interval.
+  const remoteOptions = remoteResult && remoteResult.request.search === request?.search &&
+    !(isLoading && request.page === 1) ? remoteResult.options : [];
+  const clearOption = loadOptions ? options.find((option) => option.value === "") : undefined;
 
-  /** The filter is local to one opening: closing and reopening shows the full
-   *  list again rather than whatever was typed last time. */
-  const visibleOptions =
-    searchable && term.trim()
+  /** Closing and reopening starts at page one with no search term. */
+  const visibleOptions = loadOptions
+    ? [...(clearOption ? [clearOption] : []), ...remoteOptions.filter((option) => option.value !== clearOption?.value)]
+    : searchable && term.trim()
       ? options.filter((option) =>
           option.label.toLowerCase().includes(term.trim().toLowerCase()),
         )
       : options;
+
+  const cancelRequest = useCallback(() => {
+    controllerRef.current?.abort();
+  }, []);
+
+  const closeMenu = useCallback(() => {
+    cancelRequest();
+    setIsOpen(false);
+  }, [cancelRequest]);
+
+  const selectOption = (option: DropdownOption) => {
+    if (loadOptions && isLoading && request?.page === 1 && option.value !== "") return;
+    if (loadOptions) setLastSelection(option);
+    closeMenu();
+    buttonRef.current?.focus();
+    onChange(option.value);
+  };
+
+  useEffect(() => {
+    if (!isOpen || disabled || !loadOptions || !request) return;
+
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const load = async () => {
+      if (controller.signal.aborted) return;
+      try {
+        const result = await loadOptions(
+          { search: request.search, page: request.page }, controller.signal,
+        );
+        // Some loaders cannot cancel their transport. Never publish their stale result.
+        if (controller.signal.aborted) return;
+        setRemoteResult((previous) => ({
+          request,
+          options: [...new Map([
+            ...(request.page > 1 ? previous?.options ?? [] : []),
+            ...result.options,
+          ].map((option) => [option.value, option])).values()],
+          hasNextPage: result.hasNextPage,
+        }));
+      } catch {
+        if (controller.signal.aborted) return;
+        setRemoteResult((previous) => ({
+          request,
+          options: request.page > 1 ? previous?.options ?? [] : [],
+          hasNextPage: request.page > 1 && Boolean(previous?.hasNextPage),
+          error: "Options could not be loaded.",
+        }));
+      }
+    };
+
+    const timer = request.delay ? setTimeout(load, request.delay) : undefined;
+    if (!request.delay) void load();
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [isOpen, disabled, loadOptions, request]);
 
   const updateMenuPosition = useCallback(() => {
     if (!buttonRef.current) return;
@@ -86,7 +185,9 @@ const Dropdown: React.FC<DropdownProps> = ({
     const rect = buttonRef.current.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    const estimatedHeight = Math.min(options.length * 38 + 8, MENU_MAX_HEIGHT);
+    const estimatedHeight = loadOptions
+      ? MENU_MAX_HEIGHT
+      : Math.min(options.length * 38 + 8, MENU_MAX_HEIGHT);
     const openAbove =
       rect.bottom + estimatedHeight + MENU_OFFSET > viewportHeight &&
       rect.top > estimatedHeight + MENU_OFFSET;
@@ -98,42 +199,45 @@ const Dropdown: React.FC<DropdownProps> = ({
       left: Math.max(8, Math.min(rect.left, viewportWidth - rect.width - 8)),
       width: rect.width,
     });
-  }, [options.length]);
+  }, [options.length, loadOptions]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       const target = event.target as Node;
       if (containerRef.current?.contains(target)) return;
       if (menuRef.current?.contains(target)) return;
-      setIsOpen(false);
+      closeMenu();
     };
 
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [closeMenu]);
 
   useEffect(() => {
-    if (!isOpen) return;
+    if (!isOpen || disabled) return;
 
     const handleReflow = () => updateMenuPosition();
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
-        setIsOpen(false);
+        // Consume Escape before the enclosing modal's document listener.
+        event.preventDefault();
+        event.stopPropagation();
+        closeMenu();
         buttonRef.current?.focus();
       }
     };
 
     window.addEventListener("resize", handleReflow);
     window.addEventListener("scroll", handleReflow, true);
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, true);
 
     return () => {
       window.removeEventListener("resize", handleReflow);
       window.removeEventListener("scroll", handleReflow, true);
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, true);
     };
-  }, [isOpen, updateMenuPosition]);
+  }, [isOpen, disabled, updateMenuPosition, closeMenu]);
 
   // Typing is the point of a searchable list, so the caret starts in the box.
   useEffect(() => {
@@ -162,26 +266,34 @@ const Dropdown: React.FC<DropdownProps> = ({
               type="text"
               value={term}
               placeholder={searchPlaceholder}
-              aria-label={searchPlaceholder}
+              aria-label={searchLabel ?? searchPlaceholder}
+              aria-controls={listboxId}
               className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm outline-none placeholder:text-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-              onChange={(event) => setTerm(event.target.value)}
-              // Enter takes the first match, so the box alone is enough to pick.
+              onChange={(event) => {
+                const search = event.target.value;
+                setTerm(search);
+                if (loadOptions) {
+                  cancelRequest();
+                  setRequest({ search: search.trim(), page: 1, delay: 350 });
+                }
+              }}
+              // Enter takes the first current match, never the previous search.
               onKeyDown={(event) => {
                 if (event.key !== "Enter") return;
                 event.preventDefault();
-                const [first] = visibleOptions;
-                if (!first) return;
-                onChange(first.value);
-                setIsOpen(false);
+                if (event.nativeEvent.isComposing || (loadOptions && isLoading)) return;
+                const first = loadOptions && term.trim()
+                  ? remoteOptions[0] : visibleOptions[0];
+                if (first) selectOption(first);
               }}
             />
           </div>
         )}
 
-        {visibleOptions.length === 0 ? (
+        {visibleOptions.length === 0 && !loadOptions ? (
           <p className="px-3.5 py-3 text-sm text-gray-500">Nothing matches that.</p>
         ) : (
-          <ul role="listbox" className="py-1">
+          <ul id={listboxId} role="listbox" aria-label={ariaLabel ?? label ?? placeholder} aria-busy={isLoading} className="py-1">
             {visibleOptions.map((option) => (
               <li
                 key={option.value}
@@ -193,21 +305,52 @@ const Dropdown: React.FC<DropdownProps> = ({
                     ? "bg-indigo-100 font-medium text-indigo-700"
                     : "text-gray-700"
                 }`}
-                onClick={() => {
-                  onChange(option.value);
-                  setIsOpen(false);
-                }}
+                onClick={() => selectOption(option)}
                 onKeyDown={(event) => {
                   if (event.key !== "Enter" && event.key !== " ") return;
                   event.preventDefault();
-                  onChange(option.value);
-                  setIsOpen(false);
+                  selectOption(option);
                 }}
               >
                 {option.label}
               </li>
             ))}
           </ul>
+        )}
+        {loadOptions && (
+          <>
+            {isLoading && (
+              <p role="status" className="px-3.5 py-3 text-sm text-gray-500">Loading options...</p>
+            )}
+            {loadError && (
+              <div className="px-3.5 py-3 text-sm text-gray-500">
+                <p role="alert">{loadError}</p>
+                <button
+                  type="button"
+                  className="mt-2 cursor-pointer text-indigo-700 underline focus:outline-indigo-500"
+                  onClick={() => request && setRequest({ ...request, delay: 0 })}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!isLoading && !loadError && remoteOptions.length === 0 && (
+              <p role="status" className="px-3.5 py-3 text-sm text-gray-500">Nothing matches that.</p>
+            )}
+            {remoteResult?.hasNextPage && !loadError && (
+              <button
+                type="button"
+                disabled={isLoading}
+                className="w-full cursor-pointer px-3.5 py-2 text-left text-sm text-indigo-700 hover:bg-indigo-50 focus:outline-indigo-500 disabled:cursor-not-allowed disabled:opacity-60"
+                onClick={() => {
+                  if (!request || isLoading) return;
+                  setRequest({ search: request.search, page: request.page + 1, delay: 0 });
+                }}
+              >
+                Load more
+              </button>
+            )}
+          </>
         )}
       </div>
     ) : null;
@@ -217,7 +360,7 @@ const Dropdown: React.FC<DropdownProps> = ({
       {label && (
         <div className="flex items-center gap-1">
           <label
-            htmlFor={id ?? name}
+            htmlFor={triggerId}
             className="text-sm font-medium text-slate-800 max-sm:text-xs"
           >
             {label}
@@ -237,7 +380,7 @@ const Dropdown: React.FC<DropdownProps> = ({
       <div className="relative w-full min-w-0">
         <button
           ref={buttonRef}
-          id={id}
+          id={triggerId}
           name={name}
           type="button"
           disabled={disabled}
@@ -251,13 +394,20 @@ const Dropdown: React.FC<DropdownProps> = ({
             ${className}
           `}
           onClick={() => {
-            if (!isOpen) {
-              updateMenuPosition();
-              setTerm("");
+            if (isOpen) {
+              closeMenu();
+              return;
             }
-            setIsOpen((current) => !current);
+            updateMenuPosition();
+            setTerm("");
+            // Keep the portal inside aria-modal, without the form's scroll clipping.
+            setPortalTarget(buttonRef.current?.closest<HTMLElement>('[role="dialog"]') ?? document.body);
+            if (loadOptions) setRequest({ search: "", page: 1, delay: 0 });
+            setIsOpen(true);
           }}
-          aria-expanded={isOpen}
+          aria-label={ariaLabel}
+          aria-expanded={isOpen && !disabled}
+          aria-controls={isOpen && !disabled ? listboxId : undefined}
           aria-haspopup="listbox"
         >
           <span
@@ -277,7 +427,7 @@ const Dropdown: React.FC<DropdownProps> = ({
         </button>
       </div>
 
-      {menu && createPortal(menu, document.body)}
+      {menu && portalTarget && createPortal(menu, portalTarget)}
 
       {error && (
         <span className="mt-0.5 text-xs font-medium text-red-600">{error}</span>

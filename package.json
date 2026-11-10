@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test:auth": "node --import tsx --test scripts/safe-redirect.test.mjs scripts/auth-client.test.mjs scripts/proxy.test.mjs"
+    "test:auth": "node --import tsx --test scripts/safe-redirect.test.mjs scripts/auth-client.test.mjs scripts/proxy.test.mjs",
+    "test:queries": "node --import tsx --test scripts/doctor-options.test.mjs"
   },
   "dependencies": {
     "next": "16.4.6",

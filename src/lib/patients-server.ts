@@ -13,6 +13,6 @@ export const fetchPatientList = (
 ): Promise<PaginatedPayload<Patient>> =>
   apiGet<PaginatedPayload<Patient>>("/patients", patientQueryToApiParams(query));
 
-/** The distinct conditions and the assignable doctors behind the two dropdowns. */
-export const fetchPatientFilterOptions = (): Promise<PatientFilterOptions> =>
-  apiGet<PatientFilterOptions>("/patients/meta/filters");
+/** Conditions and a bounded initial doctor page, including the selected label. */
+export const fetchPatientFilterOptions = (doctorId?: string): Promise<PatientFilterOptions> =>
+  apiGet<PatientFilterOptions>("/patients/meta/filters", { doctorId });

@@ -8,6 +8,7 @@ import Modal from "@/components/ui/modals/Modal";
 import Textarea from "@/components/ui/inputs/Textarea";
 import { showErrorAlert, showSuccessAlert } from "@/components/ui/alerts/Alerts";
 import { createPatient, createRosterPatient, updatePatient } from "@/lib/patients-client";
+import { loadDoctorOptions } from "@/lib/doctors-client";
 import { apiFieldErrors, apiMessage } from "@/lib/api-client";
 import {
   COMMON_CONDITIONS,
@@ -177,16 +178,15 @@ function PatientForm({
       value: doctor.id,
       label: doctor.name,
     }));
-    const assigned = values.doctorId;
+    const assigned = patient?.doctorId;
     if (!assigned || choices.some((choice) => choice.value === assigned)) return choices;
 
-    // A patient whose doctor record is gone still has to show what is stored,
-    // or the dialog would open looking unassigned while holding an identifier.
+    // Remote selections must keep their cached label, not inherit the old assignment's label.
     return [
       { value: assigned, label: patient?.doctor?.name ?? "Doctor no longer listed" },
       ...choices,
     ];
-  }, [filterOptions.doctors, patient?.doctor?.name, rosterDoctorId, values.doctorId]);
+  }, [filterOptions.doctors, patient?.doctor?.name, patient?.doctorId, rosterDoctorId]);
 
   const setValue = (field: keyof PatientFormValues, value: string): void => {
     setValues((current) => ({ ...current, [field]: value }));
@@ -347,8 +347,10 @@ function PatientForm({
           // Pinned on a roster page: the url already chose, so there is one name
           // to show and nothing to search through.
           searchable={!rosterDoctorId}
+          loadOptions={rosterDoctorId ? undefined : loadDoctorOptions}
           disabled={Boolean(rosterDoctorId)}
           searchPlaceholder="Search doctors..."
+          searchLabel="Search doctors by name prefix"
           placeholder="Select a doctor"
           options={doctorChoices}
           value={values.doctorId}

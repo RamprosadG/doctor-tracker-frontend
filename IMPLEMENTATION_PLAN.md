@@ -22,7 +22,7 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Verified & Committed)*
 - [x] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Verified & Committed)*
 - [x] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Verified & Committed)*
-- [ ] **Step 7: Performance, Hardening & End-to-End QA** *(In progress — initial hardening/auth slice verified)*
+- [ ] **Step 7: Performance, Hardening & End-to-End QA** *(In progress — hardening/auth committed; query audit verified)*
 - [ ] **Step 8: Documentation, Visual Evidence & Release** *(Planned)*
 
 ### Track record
@@ -36,7 +36,7 @@ this plan — may name another project. Every component is described as somethin
 | 4 | Patients | `ad2c786` | `7123928` | Verified & Committed |
 | 5 | Relations | `ca48d87` | `665aa13` | Verified & Committed |
 | 6 | Dashboard | `48396be` | `98f0869` | Verified & Committed |
-| 7 | Performance/QA | — | — | In progress; initial hardening/auth verified |
+| 7 | Performance/QA | `8b6148c` (hardening) | `878e84c` (auth) | In progress; query audit verified, uncommitted |
 | 8 | Docs/Release | — | — | Planned |
 
 Fill the two commit columns with the short SHA once the step is verified.
@@ -522,14 +522,18 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
 
 ### Step 7: Performance, Hardening & End-to-End QA
 **Goal**: Prove the optimization criteria in the spec rather than claim them.
-**Status:** In progress — first hardening/auth slice verified, uncommitted; broader audits remain open.
+**Status:** In progress — hardening/auth committed; query audit verified, uncommitted; broader audits remain open.
 
 #### Backend
 - [x] **7.1** `helmet`, `compression`, request logging (dev), body-size limit, security headers, centralized async error forwarding, Mongo duplicate/cast/validation error mapping to 409/400/422.
   - Verify: `npm run test:hardening` passes 13 tests using real HTTP listeners, actual Mongoose error classes and no clinic DB connection. Headers, gzip, malformed body 400, oversized JSON/form 413, unsupported encoding 415, safe CORS 403, async 500, duplicate 409, cast 400, validation 422 and headers-sent delegation pass.
   - Development logs include method, route template/unmatched, status and duration only; error logs omit raw input/error objects. Existing 100kb limits and Express 5 async forwarding are preserved. Live API headers confirmed; both repository lint/typecheck/build gates passed.
-- [ ] **7.2** Query audit: `lean()` + projection on every list path, no `find()` without limit, `explain()` evidence captured for search/filter/pagination.
-  - Verify: `IXSCAN` + `docsExamined ≤ pageSize + scanned-window` recorded per query.
+- [x] **7.2** Query audit: `lean()` + projection on every list path, no `find()` without limit, `explain()` evidence captured for search/filter/pagination.
+  - Verify: backend `npm run test:queries` passes **2,692 checks** in a fresh disposable Mongo namespace (600 doctors / 3,000 patients); frontend `npm run test:queries` passes **7** loader/SSR checks. Actual sent commands are explained with winning-plan, document and key budgets; fixture oracles verify totals, page lengths, ordering, unique rows and joined DTOs.
+  - Doctor/patient lists and nested rosters remain projected, page-limited aggregations (plain objects, not hydrated documents), with the limit before lookup. Detail reads are projected/lean. Empty-filter exact counts now use `_id_`; new additive indexes cover doctor `updatedAt`, raw hospital distinct values and stable `(nameLower, _id)` picker ordering. Every runtime multi-record `find()` is bounded; the seed lookup is also projected/lean and capped to its fixture set.
+  - `GET /doctors/options` validates name-prefix search and pagination (default 20, maximum 100). Patient metadata returns the first 20 doctors plus at most one selected doctor; both patient pickers fetch subsequent pages/search results on demand, preserving every doctor's reachability without loading the collection. Uppercase selected IDs are canonicalized before deduplication.
+  - Distinct scalar option sets and exact totals deliberately remain complete, not silently truncated: their indexed work scales with distinct/matching entries. Prefix searches may sort all matching candidates; combined filters may fetch candidates rejected by another predicate; offset pagination scans skipped keys. The verifier reports these windows and lookup work separately rather than claiming universal page-size-only cost.
+  - Browser verification passed **24 checks** across paging/search/empty/error/retry, pending Enter, stale responses, selected labels, create/edit pickers, saved reassignment, history/reset, pinned roster and static-dropdown regressions. Actual 375/1440 px iframe viewports had no document or picker overflow; broader responsive/accessibility QA remains in 7.7.
 - [ ] **7.3** Global rate limiter plus stricter auth limiter; graceful shutdown closes HTTP server then Mongoose.
   - Verify: `SIGINT` drains without a dangling handle.
   - Implemented and partially verified: global 300/15m plus login 5/min defaults, JSON 429/Retry-After, proxy-header spoofing does not change the IP budget, GET/HEAD readiness exemptions. Owned-child tests drain real HTTP before a stubbed database disconnect, prove idempotence/nonzero disconnect-failure exit, and force-close held sockets after 10 seconds.
@@ -549,6 +553,7 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
   - Verify: zero horizontal overflow, tap targets ≥ 44 px on mobile.
 - [ ] **7.8** Full QA run as an engineer would: create → search → filter → paginate → edit → reassign → delete on both entities, plus chart accuracy against the same data set.
   - Verify: pass/fail matrix recorded in the session log with severity + file:line for defects.
+  - Open pagination edge case: existing full doctor/patient list sorts do not have an `_id` tiebreaker. Step 7.2 checks exact page IDs for unique sort values and primary ordering for ties; cross-page stability under equal names/dates still needs verification/fixing here. The new picker already has an indexed ID tiebreaker.
 
 **Step 7 gate:** every defect closed or explicitly deferred, both builds clean. → commit both.
 
@@ -607,6 +612,41 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 - **Pushing to GitHub** is never done automatically; the commands are reported instead.
 
 ## Session log
+
+- **2026-11-10** — Resumed after the initial Step 7 hardening/auth commits (`8b6148c` / `878e84c`), and
+  verified Step **7.2** without creating another commit or pushing. Added the bounded doctor-options API,
+  selected-label metadata, remote patient pickers, projected/lean detail reads, covered exact counts and
+  three additive doctor indexes. Both existing plan copies are synchronized with this checkpoint.
+  Backend query verifier: **2,692/2,692**, using actual driver commands and an independent fixture oracle;
+  hardening: **13/13**; isolated dashboard regression: **148/148** (optional live dashboard account pass
+  skipped because no explicit dashboard QA credentials were supplied). Frontend picker loader/SSR tests:
+  **7/7**; auth: **27/27**. Both lint/typecheck/build gates passed. Frontend build output was isolated from
+  the running dev server; temporary Next/TypeScript configuration was restored and generated QA output removed.
+  Browser **24/24**: paged all 48 doctors (36 owned fixtures plus 12 existing), searched beyond page one,
+  exercised offline/retry and empty states, rejected stale Enter/response selection, preserved edit labels,
+  saved a reassignment through the form, updated the old roster, restored URL/history/reset state, and
+  verified pinned roster/static gender controls. 375/1440 px viewports had no document/picker overflow;
+  final console check had no warnings/errors. Removed exactly the owned 36 doctors, one patient, one QA
+  user and that user's sessions; clinic counts returned to **12 doctors / 60 patients**. No real credentials
+  were read or printed, and neither pre-existing dev server was stopped. Next open item: **7.3**.
+
+  | Query shape | Winning input plan | Documents / keys examined | Scope |
+  | --- | --- | --- | --- |
+  | Doctor browse, all six sorts, page 3 | IXSCAN + SKIP + LIMIT | 10 / 30 | 600 doctors |
+  | Patient browse, all four sorts, page 3 | IXSCAN + SKIP + LIMIT | 10 / 30 | 3,000 patients |
+  | Exact unfiltered totals | covered COUNT_SCAN | 0 / 600 or 3,000 | Exact counts intentionally scan all keys |
+  | Doctor name-prefix search | indexed OR + SORT | 10 / 12 | 10 matching rows |
+  | Patient name / email / phone prefixes | indexed OR + SORT | 10 / 11; 11 / 13; 10 / 12 | Matching windows, not full collections |
+  | Doctor specialization / hospital-window | IXSCAN + LIMIT | 10 / 10 | Compound filter/order indexes |
+  | Patient condition / gender / visit window | IXSCAN + LIMIT | 10 / 10 | Compound or date indexes |
+  | Combined doctor / patient filters | IXSCAN + residual filtering | 30 / 30; 28 / 28 | Other predicates reject fetched candidates |
+  | Picker duplicate-name pages 1 / 2 / 3 | nameLower + _id IXSCAN | 20 / 20; 20 / 40; 5 / 45 | All 45 equal-name doctors reached once |
+  | Patient metadata | bounded find + optional ID lookup | At most 20 + 1 documents | Selected doctor stays visible |
+  | Conditions / specializations / hospitals | covered DISTINCT_SCAN | 0 / 7; 0 / 5; 0 / 3 | Complete scalar option sets |
+
+  Lookup counters are printed separately: doctor rows count patients from the roster index without fetching
+  patients, and patient rows use one `_id_` doctor lookup per returned row. Full-list equal-sort-key pagination
+  is recorded as an open 7.8 edge case; this checkpoint does not claim to close the remaining Step 7 audits.
 
 - **2026-11-10** — On explicit request, committed Step 6 as backend `48396be` and frontend `98f0869`; no push.
   Started Step 7 with the bounded API-hardening and session-recovery slice above; these new changes remain

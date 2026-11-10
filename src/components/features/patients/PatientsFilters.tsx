@@ -8,6 +8,7 @@ import Button from "@/components/ui/buttons/Button";
 import { withAllOption } from "@/types/doctor";
 import { genderOptions } from "@/types/patient";
 import { PATIENT_SORT_OPTIONS, hasQueryState } from "@/lib/patient-query";
+import { loadDoctorOptions } from "@/lib/doctors-client";
 import { IoRefreshOutline } from "react-icons/io5";
 import type {
   PatientFilterOptions,
@@ -66,6 +67,11 @@ export default function PatientsFilters({
         />
 
         <Dropdown
+          ariaLabel="Filter by doctor"
+          searchable
+          searchPlaceholder="Search doctors..."
+          searchLabel="Search doctors by name prefix"
+          loadOptions={loadDoctorOptions}
           options={doctorChoices}
           value={query.doctorId ?? ""}
           onChange={(value) => onChange({ doctorId: value || undefined })}

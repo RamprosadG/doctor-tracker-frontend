@@ -68,8 +68,9 @@ export type PatientListQuery = PaginationParams & {
 /** The keys `GET /patients?sort=` accepts; anything else is a 400 at the API. */
 export type PatientSort = "-visitDate" | "visitDate" | "-name" | "name";
 
-/** `GET /patients/meta/filters`: the conditions actually stored, and every
- *  doctor a patient can be assigned to. */
+/** `GET /patients/meta/filters`: stored conditions and bounded doctor options:
+ *  the first 20 by name plus the selected `doctorId`, when supplied (at most 21).
+ *  Further doctor choices come from the paginated `/doctors/options` endpoint. */
 export interface PatientFilterOptions {
   conditions: string[];
   doctors: PatientDoctorSummary[];
