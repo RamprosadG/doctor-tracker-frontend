@@ -72,15 +72,24 @@ export interface RequestOptions {
   signal?: AbortSignal;
 }
 
-async function request<T>(
+/**
+ * Sign-in endpoints answer 401 as their normal "you are not signed in" reply,
+ * so refreshing on their behalf would loop.
+ */
+const AUTH_ENDPOINTS = new Set([
+  "/auth/login",
+  "/auth/refresh",
+  "/auth/logout",
+  "/auth/me",
+]);
+
+async function send(
   method: string,
   path: string,
   { query, body, signal }: RequestOptions = {},
-): Promise<T> {
-  let response: Response;
-
+): Promise<Response> {
   try {
-    response = await fetch(buildUrl(API_URL, path, query), {
+    return await fetch(buildUrl(API_URL, path, query), {
       method,
       headers: {
         Accept: "application/json",
@@ -94,10 +103,53 @@ async function request<T>(
       signal,
     });
   } catch {
-    throw new ApiError(
-      "Cannot reach the API. Check that the backend is running.",
-      0,
-    );
+    throw new ApiError("Cannot reach the API. Check that the backend is running.", 0);
+  }
+}
+
+let refreshInFlight: Promise<boolean> | null = null;
+
+/**
+ * Rotates the session from the refresh cookie, at most once at a time. Two
+ * parallel 401s must not both present the same refresh token: the API reads a
+ * replay as theft and revokes the whole family, signing the user out everywhere.
+ */
+export function refreshSession(): Promise<boolean> {
+  refreshInFlight ??= send("POST", "/auth/refresh")
+    .then((response) => response.ok)
+    .catch(() => false)
+    .finally(() => {
+      refreshInFlight = null;
+    });
+
+  return refreshInFlight;
+}
+
+type SessionListener = () => void;
+const sessionLostListeners = new Set<SessionListener>();
+
+/** Lets the auth provider drop its user state without the transport importing React. */
+export function onSessionLost(listener: SessionListener): () => void {
+  sessionLostListeners.add(listener);
+  return () => sessionLostListeners.delete(listener);
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  let response = await send(method, path, options);
+
+  if (response.status === 401 && !AUTH_ENDPOINTS.has(path)) {
+    // A 401 is raised by the auth middleware before any controller runs, so the
+    // rejected mutation never happened and replaying it is safe.
+    if (await refreshSession()) {
+      response = await send(method, path, options);
+    }
+    if (response.status === 401) {
+      for (const listener of sessionLostListeners) listener();
+    }
   }
 
   return unwrap<T>(response);

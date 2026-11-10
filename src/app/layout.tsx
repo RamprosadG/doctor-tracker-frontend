@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { AppLayoutShell } from "@/components/shared/AppLayoutShell";
+import { AuthProvider } from "@/components/features/auth/AuthProvider";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -33,7 +33,10 @@ export default function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-slate-50 text-slate-900">
-        <AppLayoutShell>{children}</AppLayoutShell>
+        {/* The session lives here so the navbar, the login form and the
+            server-rendered pages all read one source of truth. The chrome is
+            added by the route group's layout, so `/login` stays bare. */}
+        <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
   );

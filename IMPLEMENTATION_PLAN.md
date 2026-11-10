@@ -17,7 +17,7 @@ this plan — may name another project. Every component is described as somethin
 
 - [x] **Step 0: Dual Bootstrap — Repo Skeletons, Config, Shell & UI Primitives** *(Verified & Committed)*
 - [x] **Step 1: Data Layer — Mongoose Models, Indexes, Seed & Typed API Client** *(Verified & Committed)*
-- [ ] **Step 2: Authentication — Login, Token Rotation, Protected Routes** *(Planned)*
+- [x] **Step 2: Authentication — Login, Token Rotation, Protected Routes** *(Verified & Committed)*
 - [ ] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Planned)*
 - [ ] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Planned)*
 - [ ] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Planned)*
@@ -30,7 +30,7 @@ this plan — may name another project. Every component is described as somethin
 | Step | Scope | Backend commit | Frontend commit | Status |
 | ---- | ----- | -------------- | --------------- | ------ |
 | 0 | Bootstrap | `21c6760` | `301bae0` | Verified & Committed |
-| 1 | Data layer | — | — | Planned |
+| 1 | Data layer | `fe732a2` | `ec63f0d` | Verified & Committed |
 | 2 | Auth | — | — | Planned |
 | 3 | Doctors | — | — | Planned |
 | 4 | Patients | — | — | Planned |
@@ -151,30 +151,37 @@ TLS-protected hosted cluster on 2026-11-10.**
 
 ### Step 2: Authentication — Login, Token Rotation, Protected Routes
 **Goal**: One authenticated session path, closed by default, working end to end.
-**Status:** Planned
+**Status:** Verified & Committed
 
 #### Backend
-- [ ] **2.1** `src/utils/password.ts` (bcrypt hash/compare) + `src/utils/token.ts` (HS512 sign/verify, `hashToken`).
+- [x] **2.1** `src/utils/password.ts` (bcrypt hash/compare) + `src/utils/token.ts` (HS512 sign/verify, `hashToken`).
   - Verify: unit probe hashes/compares and round-trips a JWT payload.
-- [ ] **2.2** `refreshToken.model.ts` + `refreshToken.service.ts` — store hash + `tokenFamily`, create/rotate/revoke/find, reuse detection revokes the family, TTL index on `expiresAt`.
+- [x] **2.2** `refreshToken.model.ts` + `refreshToken.service.ts` — store hash + `tokenFamily`, create/rotate/revoke/find, reuse detection revokes the family, TTL index on `expiresAt`.
   - Verify: reuse of a rotated token returns 401 and clears that user's sessions.
-- [ ] **2.3** `auth.schema.ts` + `auth.controller.ts` + `auth.route.ts` — `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`; identical 401 wording for unknown email vs wrong password.
+- [x] **2.3** `auth.schema.ts` + `auth.controller.ts` + `auth.route.ts` — `POST /api/v1/auth/login`, `POST /api/v1/auth/refresh`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`; identical 401 wording for unknown email vs wrong password.
   - Verify: curl with a cookie jar shows both cookies set, `/auth/me` 200s after refresh, 401 without.
-- [ ] **2.4** `authenticate` middleware (access token → silent refresh from cookie) and `authorize(['admin'])`; `router.ts` mounts `/auth` publicly and everything else behind them.
+- [x] **2.4** `authenticate` middleware (access token → silent refresh from cookie) and `authorize(['admin'])`; `router.ts` mounts `/auth` publicly and everything else behind them.
   - Verify: an expired `accessToken` with a valid `refreshToken` still returns 200; a tampered token returns 401.
-- [ ] **2.5** Login rate limiting (`express-rate-limit`, keyed by IP) + cookie options from config.
+- [x] **2.5** Login rate limiting (`express-rate-limit`, keyed by IP) + cookie options from config.
   - Verify: 6th bad attempt in a minute returns 429.
 
 #### Frontend
-- [ ] **2.6** `src/components/features/auth/AuthProvider.tsx` + `auth-client.ts` — `user`, `login`, `logout`, `refreshSession`, `bootstrap /auth/me`, loading state, single-flight refresh.
+- [x] **2.6** `src/components/features/auth/AuthProvider.tsx` + `auth-client.ts` — `user`, `login`, `logout`, `refreshSession`, `bootstrap /auth/me`, loading state, single-flight refresh.
   - Verify: reload keeps the session; two parallel 401s trigger exactly one refresh.
-- [ ] **2.7** `/login` page (`LoginForm`, `LoginHeader`) with zod-shaped field errors, show/hide password, redirect to `?next=` target, and a SweetAlert on success.
+- [x] **2.7** `/login` page (`LoginForm`, `LoginHeader`) with zod-shaped field errors, show/hide password, redirect to `?next=` target, and a SweetAlert on success.
   - Verify: wrong password → inline error; right password → lands on Dashboard.
-- [ ] **2.8** `src/middleware.ts` — cookie-presence gate: no `accessToken`/`refreshToken` on a protected path redirects to `/login?next=…`, and a signed-in visitor is pushed off `/login`.
+- [x] **2.8** `src/proxy.ts` — cookie-presence gate: no `accessToken`/`refreshToken` on a protected path redirects to `/login?next=…`, and a signed-in visitor is pushed off `/login`.
+  - Delivered as `proxy.ts`, not `middleware.ts`: Next 16 renamed the route-level proxy and still
+    honors `middleware.ts` only with a deprecation warning. It also injects `x-request-path` so the
+    server-side guard can rebuild `?next=`.
   - Verify: `curl -i` on `/doctors` without cookies returns 307 to `/login`.
-- [ ] **2.9** `UserMenu` wired to `useAuth` (initial avatar, email, logout → `/login`), sidebar hidden until authenticated, global 401 → session clear + redirect.
+- [x] **2.9** `UserMenu` wired to `useAuth` (initial avatar, email, logout → `/login`), sidebar hidden until authenticated, global 401 → session clear + redirect.
   - Verify: logout from each page returns to `/login` and blocks the back-route data.
-- [ ] **2.10** Server-side guard `requireUser()` in `src/lib/session.ts` used by every data page (401 → `redirect('/login')`).
+- [x] **2.10** Server-side guard `requireUser()` in `src/lib/session.ts` used by every data page (401 → `redirect('/login')`).
+  - `src/lib/server-api.ts` now forwards the `accessToken` cookie **only**. A rotation spent during a
+    server render cannot be written back to the browser (Next permits cookie writes in Server Actions
+    and route handlers, not in `after()` during a page render), so the browser is the single rotation
+    authority. `(app)/layout.tsx` sets `export const instant = false` to keep the guard out of prerender.
   - Verify: direct hit on `/doctors` while signed out never renders table chrome.
 
 **Step 2 gate:** login/logout/refresh matrix in the browser + curl, `npm run build` both. → commit both.
@@ -377,6 +384,40 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 
 ## Session log
 
+- **2026-11-10** — Step 2 verified and committed. Backend `probe-auth.mjs`: **15/15** against the live
+  cluster — login sets `accessToken` (`Max-Age=1800`) and `refreshToken` (`Max-Age=604800`), both
+  `HttpOnly; SameSite=Lax; Path=/`; no response body contains a `eyJ` token anywhere; `/auth/me` 200s
+  with the jar and 401s without ("Please sign in to continue."); a tampered signature 401s; an absent
+  access token with a valid refresh cookie 200s and returns a *new* pair; replaying the spent refresh
+  token 401s with "This session was already used once, so it has been signed out everywhere. Please
+  sign in again." and the whole family (including the good copy) is revoked; logout clears both cookies
+  to `Expires=Thu, 01 Jan 1970 00:00:00 GMT`; unknown email and wrong password return byte-identical
+  401 wording; the sixth bad attempt in a minute is 429 (`RateLimit: limit=5, remaining=0, reset=…`,
+  `RateLimit-Policy: 5;w=60`). Two bugs found by the probe, both fixed: refresh tokens issued in the
+  same second collided on the hashed-token unique index because a JWT `iat` is second-granular, so every
+  issued refresh token now carries a unique `jti`; and `express-rate-limit` v8 needed
+  `standardHeaders: "draft-7"` to emit the headers the probe asserts. Frontend `probe-web.mjs`:
+  **15/15** against `:3000`+`:5000` — anonymous `/doctors` → 307 `/login?next=%2Fdoctors`, anonymous `/`
+  → 307, the sign-in page ships no portal chrome (asserted on the drawer button and the nav links, not
+  on the word "Dashboard", which the streamed not-found boundary legitimately contains), a signed-in
+  visitor on `/login` → 307 `/`, a refresh cookie alone cannot render a page **and produces no
+  `Set-Cookie` at all** — proof the server never spent it — while a browser-side rotation returns 200
+  with both tokens replaced, the rotated pair still renders `/doctors`, and replaying the spent token
+  401s. `probe-single-flight.mts`: **6/6**, run through Node's type stripping against the real
+  `api-client.ts` with a stubbed `fetch` — two parallel 401s produce exactly **1** refresh call and both
+  callers succeed, a failed rotation is *not* followed by a replayed mutation, and the session-lost
+  notice fires once. In the browser at 1440 and 375 px: sign-out from `/patients` lands on
+  `/login?next=%2Fpatients`; wrong password shows the API's inline message and keeps the field values
+  minus the password; Show/Hide Password toggles; a good sign-in toasts "Signed in as QA Fixture." and
+  lands on `/doctors` with the `QF` avatar; a reload keeps the session; `/login` bounces when signed in;
+  the mobile drawer opens and closes; after logout `/doctors` is refused and Back shows only the form;
+  console clean apart from the one expected 401. Three deviations recorded in place: the route gate is
+  `src/proxy.ts` (Next 16 renamed `middleware.ts`, which still works but warns), `server-api.ts`
+  forwards `accessToken` only because Next will not let `after()` write cookies during a page render —
+  the browser is the single rotation authority — and `(app)/layout.tsx` sets `export const instant =
+  false` so the guard is excluded from prerender validation. Browser QA ran against a throwaway fixture
+  admin created and dropped by `dist/qa-user.mjs` (`sessions cleared: 2` on teardown); the real seeded
+  credentials were never read, printed or served. `lint`, `tsc --noEmit` and `build` green in both repos.
 - **2026-11-10** — Step 1 verified and committed. `doctor-tracker-backend/.env` now holds a live
   hosted-cluster URI (no CA file needed: the certificate chains to a public root), and
   `npm run db:inspect` — the read-only probe added with this step — reports users 1 / doctors 12 /

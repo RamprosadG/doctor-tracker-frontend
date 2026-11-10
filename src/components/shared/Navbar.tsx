@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { FiMenu } from "react-icons/fi";
 import { TbStethoscope } from "react-icons/tb";
+import { UserMenu } from "@/components/features/auth/UserMenu";
 
 interface NavbarProps {
   onOpenSidebar: () => void;
@@ -31,8 +32,10 @@ export function Navbar({ onOpenSidebar }: NavbarProps) {
             </Link>
           </div>
 
-          {/* The session controls mount here once authentication lands. */}
-          <div className="flex items-center gap-2" />
+          {/* Only the session controls live on the right: the rail owns navigation. */}
+          <div className="flex items-center gap-2">
+            <UserMenu />
+          </div>
         </div>
       </div>
     </header>
