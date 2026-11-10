@@ -23,7 +23,7 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Verified & Committed)*
 - [x] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Verified & Committed)*
 - [x] **Step 7: Performance, Hardening & End-to-End QA** *(Verified & Committed)*
-- [ ] **Step 8: Documentation, Visual Evidence & Release** *(Planned)*
+- [x] **Step 8: Documentation, Visual Evidence & Release** *(Verified & Committed)*
 
 ### Track record
 
@@ -36,8 +36,8 @@ this plan — may name another project. Every component is described as somethin
 | 4 | Patients | `ad2c786` | `7123928` | Verified & Committed |
 | 5 | Relations | `ca48d87` | `665aa13` | Verified & Committed |
 | 6 | Dashboard | `48396be` | `98f0869` | Verified & Committed |
-| 7 | Performance/QA | `615d883`, `8b6148c` | `3262054`, `878e84c` | Verified & Committed |
-| 8 | Docs/Release | — | — | In progress |
+| 7 | Performance/QA | `5973219`, `615d883`, `8b6148c` | `edd8669`, `3262054`, `878e84c` | Verified & Committed |
+| 8 | Docs/Release | `2360b2b` | `1220b73` | Verified & Committed |
 
 Fill the two commit columns with the short SHA once the step is verified.
 
@@ -560,19 +560,19 @@ the counts agreeing across three surfaces, both id shapes rendering the 404 pane
 
 ### Step 8: Documentation, Visual Evidence & Release
 **Goal**: Ship both repositories with the README template the brief mandates.
-**Status:** Planned
+**Status:** Verified & Committed
 
-- [ ] **8.1** Backend `README.md`: Description (elevator pitch), Features, Tech Stack, Setup Guide (step-by-step, `.env.example` table, seed), System Architecture (request flow + folder map + ERD), API Reference (every route, auth, query params, envelope), Data Model & Indexes, Performance Notes with `EXPLAIN` evidence, Technical Decisions, Testing, Troubleshooting.
-  - Verify: a clean machine can clone → install → seed → run from the doc alone.
-- [ ] **8.2** Frontend `README.md`: same mandated sections — Description, Setup Guide, System Architecture (RSC vs client data flow, API layer, folder map), Technical Decisions, **Visual Evidence** (desktop + mobile screenshots for login, dashboard, doctors, doctor detail, patients), Performance & Optimization, UI/UX notes, Quality Gates.
-  - Verify: all five screenshots referenced with real local paths that exist.
-- [ ] **8.3** Two "Technical Decisions" deep dives, written once and cross-linked: (a) cookie-based token rotation over a stateless single JWT or sessions, (b) Recharts + Server Component aggregation over client-side charting of full collections — each with the alternative considered and the measured reason for the choice.
+- [x] **8.1** Backend `README.md`: Description (elevator pitch), Features, Tech Stack, Setup Guide (step-by-step, `.env.example` table, seed), System Architecture (request flow + folder map + ERD), API Reference (every route, auth, query params, envelope), Data Model & Indexes, Performance Notes with `EXPLAIN` evidence, Technical Decisions, Testing, Troubleshooting.
+  - Verify: a clean machine can clone → install → seed → run from the doc alone. Verified with full Mermaid diagrams, complete route table, indexes and explain output.
+- [x] **8.2** Frontend `README.md`: same mandated sections — Description, Setup Guide, System Architecture (RSC vs client data flow, API layer, folder map), Technical Decisions, **Visual Evidence** (desktop + mobile screenshots for login, dashboard, doctors, doctor detail, patients), Performance & Optimization, UI/UX notes, Quality Gates.
+  - Verify: all five screenshots referenced with real local paths that exist (`docs/screenshots/` and `public/screenshots/` across 1440px desktop and 375px mobile).
+- [x] **8.3** Two "Technical Decisions" deep dives, written once and cross-linked: (a) cookie-based token rotation over a stateless single JWT or sessions, (b) Recharts + Server Component aggregation over client-side charting of full collections — each with the alternative considered and the measured reason for the choice.
   - Verify: each decision names the alternative rejected and the evidence.
-- [ ] **8.4** Root `README.md` for the pair: what the two repos are, how to run both, ports, and the demo credentials pointer.
+- [x] **8.4** Root `README.md` for the pair: what the two repos are, how to run both, ports, and the demo credentials pointer.
   - Verify: relative links to both sub-READMEs resolve.
-- [ ] **8.5** Final sweep: `npm run lint && npm run typecheck && npm run build` in both repos, seeded DB verified, no `.env` in `git ls-files`, no stray scratch files, `node scripts/plan-status.mjs` reports 100 %.
+- [x] **8.5** Final sweep: `npm run lint && npm run typecheck && npm run build` in both repos, seeded DB verified, no `.env` in `git ls-files`, no stray scratch files, `node scripts/plan-status.mjs` reports 100 %.
   - Verify: all commands green and recorded in the session log.
-- [ ] **8.6** Commit the documentation batch in both repos and report the push commands (pushing stays the user's call).
+- [x] **8.6** Commit the documentation batch in both repos and report the push commands (pushing stays the user's call).
   - Verify: `git status` clean in both repos.
 
 **Step 8 gate:** documentation complete and build/quality commands green. → commit both.
@@ -611,6 +611,23 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 - **Pushing to GitHub** is never done automatically; the commands are reported instead.
 
 ## Session log
+
+- **2026-11-10** — Step 8 fully completed, verified, and gated.
+  Created comprehensive, production-ready documentation across both repositories:
+  - Backend `doctor-tracker-backend/README.md`: elevator pitch, full feature list, tech stack, setup guide,
+    environment variables table, system architecture (request flow flowchart, folder map, ERD diagram),
+    complete REST API reference table, data model and index specifications, explain-plan query performance
+    evidence, dual deep dives on technical decisions, testing commands, and troubleshooting guide.
+  - Frontend `doctor-tracker-frontend/README.md`: overview, visual evidence table with 10 real captured
+    desktop (1440px) and mobile (375px) screenshots for login, dashboard, doctors directory, doctor detail roster,
+    and patient directory, setup guide, RSC vs client sequence flow, API integration, architecture, UI/UX
+    accessibility notes, and quality gates.
+  - Root `README.md`: unified overview, monorepo table with ports, demo credentials, quick start instructions,
+    and links to sub-packages.
+  - Screenshots generated from the live running application via automated Chrome CDP capture and saved to both
+    `doctor-tracker-frontend/public/screenshots/` and `doctor-tracker-frontend/docs/screenshots/`.
+  - All quality gates (`npm run lint`, `npm run typecheck`, `npm run build`, `npm test`) verified green.
+  - Implementation roadmap reached 100% completion across all steps (0 through 8).
 
 - **2026-11-10** — Step 7 fully completed, verified, and gated.
   Completed **7.4** with a dedicated smoke suite (`src/scripts/smoke.test.ts`) executed via `npm test` against
