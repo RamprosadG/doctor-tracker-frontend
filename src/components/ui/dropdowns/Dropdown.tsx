@@ -22,6 +22,11 @@ interface DropdownProps {
   id?: string;
   hideOptionalText?: boolean;
   disabled?: boolean;
+  /** Type-to-filter box above the option list, for a choice with more entries
+   *  than anybody can scan at a glance. Off by default, so every existing
+   *  caller keeps the plain listbox. */
+  searchable?: boolean;
+  searchPlaceholder?: string;
 }
 
 interface MenuPosition {
@@ -53,14 +58,27 @@ const Dropdown: React.FC<DropdownProps> = ({
   id,
   hideOptionalText = false,
   disabled = false,
+  searchable = false,
+  searchPlaceholder = "Search...",
 }) => {
   const [isOpen, setIsOpen] = useState(false);
+  const [term, setTerm] = useState("");
   const [menuPosition, setMenuPosition] = useState<MenuPosition | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
 
   const selectedOption = options.find((option) => option.value === value);
+
+  /** The filter is local to one opening: closing and reopening shows the full
+   *  list again rather than whatever was typed last time. */
+  const visibleOptions =
+    searchable && term.trim()
+      ? options.filter((option) =>
+          option.label.toLowerCase().includes(term.trim().toLowerCase()),
+        )
+      : options;
 
   const updateMenuPosition = useCallback(() => {
     if (!buttonRef.current) return;
@@ -117,6 +135,11 @@ const Dropdown: React.FC<DropdownProps> = ({
     };
   }, [isOpen, updateMenuPosition]);
 
+  // Typing is the point of a searchable list, so the caret starts in the box.
+  useEffect(() => {
+    if (isOpen && searchable) searchRef.current?.focus();
+  }, [isOpen, searchable]);
+
   // A disabled control must not leave a floating list behind.
   const menu =
     isOpen && !disabled && menuPosition ? (
@@ -132,33 +155,60 @@ const Dropdown: React.FC<DropdownProps> = ({
         }}
         className="sidebar-scrollbar z-[70] overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg"
       >
-        <ul role="listbox" className="py-1">
-          {options.map((option) => (
-            <li
-              key={option.value}
-              role="option"
-              aria-selected={value === option.value}
-              tabIndex={0}
-              className={`cursor-pointer px-3.5 py-2 text-sm transition-colors duration-150 hover:bg-indigo-50 ${
-                value === option.value
-                  ? "bg-indigo-100 font-medium text-indigo-700"
-                  : "text-gray-700"
-              }`}
-              onClick={() => {
-                onChange(option.value);
-                setIsOpen(false);
-              }}
+        {searchable && (
+          <div className="sticky top-0 border-b border-gray-100 bg-white p-2">
+            <input
+              ref={searchRef}
+              type="text"
+              value={term}
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="w-full rounded-md border border-gray-300 px-2.5 py-1.5 text-sm outline-none placeholder:text-gray-400 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
+              onChange={(event) => setTerm(event.target.value)}
+              // Enter takes the first match, so the box alone is enough to pick.
               onKeyDown={(event) => {
-                if (event.key !== "Enter" && event.key !== " ") return;
+                if (event.key !== "Enter") return;
                 event.preventDefault();
-                onChange(option.value);
+                const [first] = visibleOptions;
+                if (!first) return;
+                onChange(first.value);
                 setIsOpen(false);
               }}
-            >
-              {option.label}
-            </li>
-          ))}
-        </ul>
+            />
+          </div>
+        )}
+
+        {visibleOptions.length === 0 ? (
+          <p className="px-3.5 py-3 text-sm text-gray-500">Nothing matches that.</p>
+        ) : (
+          <ul role="listbox" className="py-1">
+            {visibleOptions.map((option) => (
+              <li
+                key={option.value}
+                role="option"
+                aria-selected={value === option.value}
+                tabIndex={0}
+                className={`cursor-pointer px-3.5 py-2 text-sm transition-colors duration-150 hover:bg-indigo-50 ${
+                  value === option.value
+                    ? "bg-indigo-100 font-medium text-indigo-700"
+                    : "text-gray-700"
+                }`}
+                onClick={() => {
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  onChange(option.value);
+                  setIsOpen(false);
+                }}
+              >
+                {option.label}
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
     ) : null;
 
@@ -201,7 +251,10 @@ const Dropdown: React.FC<DropdownProps> = ({
             ${className}
           `}
           onClick={() => {
-            if (!isOpen) updateMenuPosition();
+            if (!isOpen) {
+              updateMenuPosition();
+              setTerm("");
+            }
             setIsOpen((current) => !current);
           }}
           aria-expanded={isOpen}

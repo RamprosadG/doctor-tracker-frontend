@@ -149,7 +149,10 @@ function DoctorForm({
   };
 
   return (
-    <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+    // `noValidate` because the messages worth reading are this form's own, which
+    // are the server schema's word for word: a browser bubble would stop the
+    // submit before them and say the same thing in the operating system's voice.
+    <form className="flex flex-col gap-4" onSubmit={handleSubmit} noValidate>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Input

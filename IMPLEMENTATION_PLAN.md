@@ -19,7 +19,7 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 1: Data Layer — Mongoose Models, Indexes, Seed & Typed API Client** *(Verified & Committed)*
 - [x] **Step 2: Authentication — Login, Token Rotation, Protected Routes** *(Verified & Committed)*
 - [x] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Verified & Committed)*
-- [ ] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Planned)*
+- [x] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Verified & Committed)*
 - [ ] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Planned)*
 - [ ] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Planned)*
 - [ ] **Step 7: Performance, Hardening & End-to-End QA** *(Planned)*
@@ -32,8 +32,8 @@ this plan — may name another project. Every component is described as somethin
 | 0 | Bootstrap | `21c6760` | `301bae0` | Verified & Committed |
 | 1 | Data layer | `fe732a2` | `ec63f0d` | Verified & Committed |
 | 2 | Auth | `7e1ed5a` | `49b6d58` | Verified & Committed |
-| 3 | Doctors | — | — | Verified & Committed |
-| 4 | Patients | — | — | Planned |
+| 3 | Doctors | `af95512` | `aaf2d6f` | Verified & Committed |
+| 4 | Patients | — | — | Verified & Committed |
 | 5 | Relations | — | — | Planned |
 | 6 | Dashboard | — | — | Planned |
 | 7 | Performance/QA | — | — | Planned |
@@ -281,29 +281,112 @@ TLS-protected hosted cluster on 2026-11-10.**
 
 ### Step 4: Patient Management — Dedicated Page, CRUD, Filters
 **Goal**: The standalone patients page the spec asks for, with condition and date filtering.
-**Status:** Planned
+**Status:** Verified & Committed
 
 #### Backend
-- [ ] **4.1** `patient.schema.ts` — create/update/list-query schemas including `condition`, `doctorId` (valid ObjectId), gender enum, age bounds, `visitDate`, date range, sort whitelist.
-  - Verify: a malformed `doctorId` returns 400 before touching Mongo.
-- [ ] **4.2** `patient.service.ts` — same `$match` → count → `skip`/`take` shape, plus `$lookup` (or `$in` batch) so each row carries `doctorName`/`doctorSpecialization` without N+1 queries.
-  - Verify: one list request issues a bounded number of queries; a patient whose doctor was deleted still renders with "Unassigned".
-- [ ] **4.3** `patient.controller.ts` + `patient.route.ts` — `GET /patients`, `POST /patients`, `GET /patients/:id`, `PATCH /patients/:id`, `DELETE /patients/:id`, `GET /patients/meta/filters` (distinct conditions).
-  - Verify: create with a non-existent doctor id → 404/400, edit reassigns the doctor, delete removes only that row.
-- [ ] **4.4** Duplicate-phone guard and `visitDate` default to now when omitted.
-  - Verify: second insert with the same phone → 409.
+- [x] **4.1** `patient.schema.ts` — create/update/list-query schemas including `condition`, `doctorId` (valid ObjectId), gender enum, age bounds, `visitDate`, date range, sort whitelist.
+  - Create and update share one body schema (`updatePatientSchema` is its partial plus a "send at least one
+    field" guard), and the query schema owns the page/pageSize caps, the sort whitelist and the visit window,
+    so a malformed URL is answered with a field message instead of a Mongo error.
+  - Verify: `dist/probe-patients.mjs` — **47/47**. A malformed `doctorId` is a 400 "That doctor identifier is
+    not valid." on create *and* in the query string, before Mongo is asked; a well-formed id that is not in the
+    practice is a 404 "That doctor is not in the practice list."; an unknown sort key is 400 "That sort order
+    is not supported." and `createdAt` is refused because no index backs that order; `from` after `to` is 400
+    "Start date is after the end date."; a non-ISO date is 400 "Provide a date as YYYY-MM-DD."; `page=abc` and
+    `pageSize=101` each name their own field; a blank parameter is "no filter", not an error.
+- [x] **4.2** `patient.service.ts` — same `$match` → count → `skip`/`take` shape, plus `$lookup` (or `$in` batch) so each row carries `doctorName`/`doctorSpecialization` without N+1 queries.
+  - One aggregation carries the whole page: `$sort`/`$skip`/`$limit` run *before* the `$lookup`, so at most ten
+    doctors are joined per request, and the join projects only the summary a row shows. Deviation from the `$in`
+    batch alternative: fetching the page's doctors in a second query makes one list request two queries plus the
+    count, and the pipeline already answers both in one.
+  - Deviation in the shape handed to the client: instead of flat `doctorName`/`doctorSpecialization` columns a
+    row carries `doctor: { id, name, specialization } | null`, so the table, the form and (in Step 5) the
+    profile header read the same object, and a missing doctor is `null` rather than an empty string.
+  - `{ gender: 1, visitDate: -1 }` was added to the model for this item: the gender filter was the one
+    predicate whose visit-date order the existing indexes could not serve, so it `SORT`ed in memory.
+  - Verify: `dist/probe-patients-load.ts` — **9/9** with 5 000 fixture patients written over the seeded 60,
+    explaining the pipelines `listPatients` actually sends rather than a hand-written imitation: browse page 3
+    newest-first `LIMIT › PROJECTION_SIMPLE › FETCH › SKIP › IXSCAN` docs 10 / keys 30 / 2 ms; name-prefix
+    search `SUBPLAN › PROJECTION_SIMPLE › SORT › FETCH › OR › IXSCAN` docs 10 / keys 11; one doctor's roster, a
+    condition inside a window and gender-plus-sort all `… › FETCH › IXSCAN` docs 10 / keys 10, their counts from
+    `COUNT_SCAN` at keys 422, 65 and 1 687. The unfiltered counts are the whole-collection scan by definition
+    (docs 5 060 / 2 ms) and asserted as that shape so a leak can never pass for one. One list request is one
+    count plus one aggregate however large the page, and a patient whose doctor row is gone lists with
+    `doctor: null` instead of disappearing from the page.
+- [x] **4.3** `patient.controller.ts` + `patient.route.ts` — `GET /patients`, `POST /patients`, `GET /patients/:id`, `PATCH /patients/:id`, `DELETE /patients/:id`, `GET /patients/meta/filters` (distinct conditions).
+  - Mounted in `router.ts` behind the same `authenticate` + `authorize("admin")` pair as `/doctors`. The meta
+    route answers distinct conditions *and* every assignable doctor, because the form needs a doctor list and a
+    page of rows cannot supply one — a doctor nobody visited this month is still assignable.
+  - Verify: create with a non-existent doctor is a 404 and writes nothing; `PATCH` reassigns and the counts
+    follow on both rosters (A 7 → 6, B 5 → 6) with the moved row found under its new doctor; `DELETE` removes
+    only that row (63 → 62) and answers with the name it removed; a second delete and an unknown id are both
+    404 while a malformed id is a 400 on the `id` field; `GET /patients/meta/filters` lists 33 conditions and
+    12 doctors, both ordered; every route is a 401 without a session.
+- [x] **4.4** Duplicate-phone guard and `visitDate` default to now when omitted.
+  - The unique index on `phone` is the guard and the service turns the duplicate-key error into a 409 pinned to
+    the field. Email is deliberately **not** unique on a patient — a household shares an address — so the
+    `emailLower` mirror is sparse and exists for search only, unlike the doctors collection.
+  - Verify: a second insert with the same phone → 409 "That phone number is already in use."; an omitted
+    `visitDate` is filed as the moment the request lands (2026-11-10T09:45:00.298Z) and an omitted `email`
+    stays absent from the document instead of being stored as an empty string.
 
 #### Frontend
-- [ ] **4.5** `/patients/page.tsx` + `PatientsContent` + `PatientsView` mirroring the doctors page.
-  - Verify: deep link `/patients?search=…&condition=…&page=2` renders exactly those rows.
-- [ ] **4.6** `PatientsFilters` — search (name/phone/email), condition dropdown, doctor dropdown, date range, reset.
-  - Verify: condition list comes from the API, not hardcoded.
-- [ ] **4.7** `PatientsTable` + mobile card — name, contact, condition (single badge), assigned doctor, visit date, actions (edit/delete/view doctor link).
-  - Verify: field order identical on both faces.
-- [ ] **4.8** `PatientFormModal` — includes a searchable doctor select; create and update flows, confirm-delete.
-  - Verify: creating under doctor A then editing to doctor B changes the count shown on both pages.
+- [x] **4.5** `/patients/page.tsx` + `PatientsContent` + `PatientsView` mirroring the doctors page.
+  - `page.tsx` is only the `Suspense` boundary; `PatientsContent` awaits the list and the filter options and
+    answers a failure in place — `PatientsSkeleton` for the fallback, and on an error the filters, an empty
+    table and the reason the rows did not arrive. Both reads are `allSettled`, so a rejected *list* still hands
+    down the options the dropdowns need, and the banner quotes the API's own field sentence
+    (`apiPrimaryError`) instead of the generic envelope. The page the view pushes is the page the API served.
+  - Deviation: the doctors page got the same two changes in the same sweep, so neither list page can blank its
+    own filters when its rows fail.
+  - Verify: deep links `/patients?search=Nik`, `?condition=…&gender=female` and `?page=2`, and the three
+    together, render exactly those rows in the served document before any script runs; a 400 URL
+    (`?from=2026-12-31&to=2026-01-01`) shows "Start date is after the end date." with the doctor names in the
+    rows still resolved.
+- [x] **4.6** `PatientsFilters` — search (name/phone/email), condition dropdown, doctor dropdown, date range, reset.
+  - The same bar as the doctors page — five controls, sort riding in the results row beneath it rather than
+    inside it, and Reset offered only while the URL actually carries state. Condition and doctor options come
+    from `GET /patients/meta/filters`; the gender dropdown prepends an explicit "All genders" entry so the
+    empty URL and the reset choice are the same thing.
+  - Deviation: the phone arm of the search is prefix-anchored on the unique `phone` index, so a term has to
+    start where the stored number starts — `4155551009` finds nothing while `+14155551009` is its own match,
+    and the term is only read against `phone` when it is all digits. An unanchored pattern would turn the
+    collection's one unique index into a scan; the name and email arms are anchored for the same reason.
+  - Verify: `?search=Nik` → 7 rows, a digits term matches the phone column, an email local-part matches
+    `emailLower`; condition → 2 rows, one doctor → 7 rows, `?gender=male` → 18 rows, and filters AND together
+    with search; every change lands on `page=1` and Reset returns the URL to bare. The options the two
+    dropdowns list are the API's 33 conditions and 12 doctors, not a client-side list.
+- [x] **4.7** `PatientsTable` + mobile card — name, contact, condition (single badge), assigned doctor, visit date, actions (edit/delete/view doctor link).
+  - Both faces carry the fields in one order — patient, condition, contact, doctor, last visit — then the two
+    icon actions. The doctor cell links to `/doctors?search=<name>` until Step 5 gives it a profile page to
+    link to, and a null doctor reads "Unassigned" instead of an empty cell.
+  - Deviation: the condition column moved ahead of contact so the desktop and phone faces agree; they had been
+    mirroring different orders.
+  - Verify: at 1280 px the head row reads `Patient / Condition / Contact / Doctor / Last visit` with the cards
+    hidden; at 375 px `scrollWidth 360 == clientWidth 360` with the table hidden and the cards shown, one
+    condition badge per row and no horizontal scroll; the orphan patient shows "Unassigned" on either face.
+- [x] **4.8** `PatientFormModal` — includes a searchable doctor select; create and update flows, confirm-delete.
+  - `Dropdown` grew a `searchable` prop — a type-to-filter box that takes the first match on Enter and is off
+    by default, so every existing caller keeps the plain listbox — because twelve doctors with their
+    specializations is not a list anyone scans. The form mounts only while the dialog is open, so it seeds once
+    from the record and cannot carry the previous patient's values or message; a doctor who is no longer on the
+    roster is still offered as that patient's own choice, so an unrelated edit cannot silently move them.
+    Client rules mirror `createPatientSchema` string for string, and a rejected write pins the API's field
+    errors to the same inputs and stays open.
+  - Two payload rules the server forced, each commented where it is written: a blank optional field is sent as
+    `""`, because JSON drops `undefined` and the server reads that as "this field was not touched" while the
+    empty string is what its preprocess turns into `$unset` — except `visitDate`, where a blank is omitted
+    because `""` would be a 400. And `noValidate` on this form and the doctors form, because the messages worth
+    reading are this app's, and a browser bubble says the same thing in the operating system's voice before
+    they arrive.
+  - Verify: an invalid submit names every field in the schema's own words; create toasts and the row appears on
+    page 1; a duplicate phone keeps the dialog open with the API's 409 on that field; a patient moved from
+    doctor A to doctor B changes the count shown on both rosters and the row is found under its new doctor
+    after the refresh; clearing the email survives revalidation ("No email"); confirm-delete takes the
+    condition into its sentence and the row is gone. One filter change produces exactly **1** RSC request
+    (`GET /patients?gender=female&_rsc=…`) and one debounced keystroke burst produces one.
 
-**Step 4 gate:** full patients CRUD + filter matrix verified, build clean. → commit both.
+**Step 4 gate:** full patients CRUD + filter matrix verified in the browser at 1280 and 375 px, backend contract probe **47/47** and index-backed load probe **9/9**, lint/typecheck/build clean in both repos. → commit both.
 
 ---
 
@@ -443,6 +526,52 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 
 ## Session log
 
+- **2026-11-10** — Step 4 verified and committed. Backend `dist/probe-patients.mjs`: **47/47** against the live
+  cluster — `meta/filters` answers 33 distinct conditions and all 12 assignable doctors, both ordered; the list
+  returns rows plus full meta (`total 60 / pages 15`) with no lowercase mirror leaking and the joined doctor
+  summary on every row; default order is `visitDate` descending and `sort=name` runs A→Z off `nameLower` while
+  `createdAt` is refused; a malformed `doctorId` is a 400 on create **and** in the query string before Mongo is
+  asked, a well-formed ghost id a 404; a duplicate **phone** 409s onto the phone field; a five-field-invalid
+  create returns all five names; `PATCH` reassigns with the counts following on both doctors (A 7→6, B 5→6) and
+  the mirrors following the edit; an optional field cleared in the form is removed rather than stored empty; an
+  empty patch is refused; `DELETE` takes one row out (63 → 62) and reports its name, and a second delete or an
+  unknown id is a 404 while a malformed id is a 400 on `id`; a patient whose doctor row is gone lists with
+  `doctor: null` instead of disappearing. Backend `dist/probe-patients-load.ts` (run through `tsx`, explaining
+  the pipelines `listPatients` itself sends): **9/9** at 5 060 patients — browse page 3 `LIMIT ›
+  PROJECTION_SIMPLE › FETCH › SKIP › IXSCAN` docs 10 / keys 30 / 2 ms, name-prefix search `SUBPLAN ›
+  PROJECTION_SIMPLE › SORT › FETCH › OR › IXSCAN` docs 10 / keys 11, doctor roster / condition-in-a-window /
+  gender-with-visit-sort all `… › FETCH › IXSCAN` docs 10 / keys 10 with their counts from `COUNT_SCAN` at keys
+  422, 65 and 1 687, the unfiltered counts asserted as the deliberate whole-collection scan (docs 5 060, 2 ms),
+  one list request proven to be a count plus one aggregate at any page size, and the 5 000 fixture rows deleted
+  again (`patients now 60, doctors 12`). The `{ gender: 1, visitDate: -1 }` index was added to the model for
+  this step: the gender filter was the one predicate whose sort ran in memory. Frontend, in a real browser
+  against `:3000` + `:5000` as a throwaway fixture admin: `/patients` serves its rows, filter bar and meta line
+  in the document before any script runs; `?search=Nik` → 7 rows, condition → 2, one doctor → 7,
+  `?gender=female` → the dropdown's own list, combinations AND together, each change landing on `page=1`, with
+  Back/Forward restoring the URL and its rows and Reset returning the address to bare. **1** RSC request per
+  filter change (`GET /patients?gender=female&_rsc=…`) and one per debounced keystroke burst. CRUD: an invalid
+  submit names every field in the schema's own words; a create toasts and lands on page 1; a duplicate phone
+  keeps the dialog open with the API's 409 on that field; moving a patient from doctor A to doctor B changed the
+  count on both rosters; clearing the email survived revalidation ("No email"); confirm-delete quotes the
+  patient's own condition and the row is gone. Widths probed through same-origin iframes: 1280 px shows the
+  table with heads `Patient / Condition / Contact / Doctor / Last visit`, 375 px `scrollWidth 360 ==
+  clientWidth 360` shows the cards in that order with one condition badge each and hides the table, and the
+  orphan patient reads "Unassigned" on either face. Deviations recorded in place: the page's join is a `$lookup`
+  after `$limit` inside the same aggregation rather than an `$in` batch; a row carries
+  `doctor: { id, name, specialization }` instead of flat `doctorName`/`doctorSpecialization` columns; the
+  search's phone arm is prefix-anchored, so a term must begin where the stored number begins; `Dropdown` gained
+  `searchable` (off by default); both list pages read their two calls with `Promise.allSettled` and report
+  through `apiPrimaryError`, which swept the doctors page too; both form dialogs run `noValidate`; and a blank
+  optional field is sent as `""` — the value the server preprocesses into `$unset` — while a blank visit date is
+  omitted. QA hygiene: the browser ran on the fixture admin created and dropped by `dist/qa-user.mjs` (teardown
+  `sessions cleared: 1`), the unassigned row came from `dist/qa-orphan.mjs` and was removed again, the real
+  seeded admin's credentials were never read, printed or served, and the cluster ended at 12 doctors / 60
+  patients. Toolchain notes: a synthetic `submit()` never reaches a portal form's React handler, so every write
+  in the matrix was driven by a trusted click, while the native value setter plus an `input` event does drive a
+  controlled input; and a `next build` taken while the dev server is live rewrites `tsconfig.json`'s `include`,
+  so this step's build ran into a scratch `distDir` that was deleted and `tsconfig.json` returned to its
+  committed form before committing. Backend `lint`, `typecheck`, `build` and frontend `lint`, `tsc --noEmit`,
+  `build` all green; `/patients` stays dynamic (`ƒ`) in the build output alongside `/doctors`.
 - **2026-11-10** — Step 3 verified and committed. Backend `dist/probe-doctors.mjs`: **35/35** against the
   live cluster — `page=abc` / `page=0` / `pageSize=101` each answer 400 naming the field, a blank
   parameter is "no filter" rather than an error, the list is closed without a session (401), `POST`

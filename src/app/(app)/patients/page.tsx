@@ -1,16 +1,18 @@
-import { PageHeader } from "@/components/shared/PageHeader";
+import { Suspense } from "react";
+import PatientsContent from "@/components/features/patients/PatientsContent";
+import PatientsSkeleton from "@/components/features/patients/PatientsSkeleton";
+import type { SearchParamsInput } from "@/lib/utils";
 
-export default function PatientsPage() {
+interface PatientsPageProps {
+  searchParams: SearchParamsInput;
+}
+
+export default function PatientsPage({ searchParams }: PatientsPageProps) {
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader
-        title="Patients"
-        description="Every patient across the portal, filterable by condition, doctor and visit date."
-      />
-
-      <p className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
-        The patients table and its filters appear here.
-      </p>
+      <Suspense fallback={<PatientsSkeleton />}>
+        <PatientsContent searchParams={searchParams} />
+      </Suspense>
     </div>
   );
 }

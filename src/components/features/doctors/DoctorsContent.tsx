@@ -1,5 +1,5 @@
 import DoctorsView from "./DoctorsView";
-import { apiMessage } from "@/lib/api-client";
+import { apiPrimaryError } from "@/lib/api-client";
 import { readDoctorQuery } from "@/lib/doctor-query";
 import { fetchDoctorFilterOptions, fetchDoctorList } from "@/lib/doctors-server";
 import { buildPaginationMeta, toSearchParams, type SearchParamsInput } from "@/lib/utils";
@@ -28,13 +28,22 @@ const NO_OPTIONS: DoctorFilterOptions = { specializations: [], hospitals: [] };
  * Both reads belong to the render, so a failure is answered here rather than
  * thrown at the viewer: the filters, the empty table and the reason the rows
  * did not arrive still make a usable page.
+ *
+ * They are settled apart on purpose. A query string the API refuses — an added
+ * window that ends before it starts — is a reason the rows are missing, not a
+ * reason to blank the two dropdowns as well.
  */
 async function readDoctors(query: DoctorListQuery): Promise<DoctorsRead> {
-  try {
-    const [list, filterOptions] = await Promise.all([
-      fetchDoctorList(query),
-      fetchDoctorFilterOptions(),
-    ]);
+  const [listResult, optionsResult] = await Promise.allSettled([
+    fetchDoctorList(query),
+    fetchDoctorFilterOptions(),
+  ]);
+
+  const filterOptions =
+    optionsResult.status === "fulfilled" ? optionsResult.value : NO_OPTIONS;
+
+  if (listResult.status === "fulfilled") {
+    const list = listResult.value;
 
     // The API clamps a page beyond the last one, and the view has to push the
     // page it actually showed — otherwise a delete that shrinks the result set
@@ -44,14 +53,14 @@ async function readDoctors(query: DoctorListQuery): Promise<DoctorsRead> {
       filterOptions,
       effectiveQuery: { ...query, page: list.meta.page, pageSize: list.meta.pageSize },
     };
-  } catch (error) {
-    return {
-      list: { items: [], meta: buildPaginationMeta(query.page, query.pageSize, 0) },
-      filterOptions: NO_OPTIONS,
-      effectiveQuery: query,
-      loadError: apiMessage(error, "The doctor list could not be loaded."),
-    };
   }
+
+  return {
+    list: { items: [], meta: buildPaginationMeta(query.page, query.pageSize, 0) },
+    filterOptions,
+    effectiveQuery: query,
+    loadError: apiPrimaryError(listResult.reason, "The doctor list could not be loaded."),
+  };
 }
 
 /**

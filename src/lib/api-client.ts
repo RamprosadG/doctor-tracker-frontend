@@ -77,6 +77,18 @@ export const apiMessage = (error: unknown, fallback: string): string =>
 export const apiFieldErrors = (error: unknown): FieldErrors | undefined =>
   error instanceof ApiError ? error.errors : undefined;
 
+/**
+ * Where a rejected call has no inputs to hang its messages on — a list page
+ * whose query string the API refused — the one line shown has to be the field
+ * that failed. "Some fields need attention." is the envelope's sentence, not
+ * the reader's, so it is the fallback rather than the headline.
+ */
+export const apiPrimaryError = (error: unknown, fallback: string): string => {
+  const [first] = Object.values(apiFieldErrors(error) ?? {});
+
+  return first || apiMessage(error, fallback);
+};
+
 export interface RequestOptions {
   query?: QueryParams;
   body?: unknown;
