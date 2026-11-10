@@ -1,16 +1,12 @@
 "use client";
 
 import Dropdown from "@/components/ui/dropdowns/Dropdown";
-import FilterBar from "@/components/ui/filters/FilterBar";
 import Input from "@/components/ui/inputs/Input";
 import SearchInput from "@/components/ui/inputs/SearchInput";
-import Button from "@/components/ui/buttons/Button";
 import { withAllOption } from "@/types/doctor";
 import {
   DOCTOR_SORT_OPTIONS,
-  hasQueryState,
 } from "@/lib/doctor-query";
-import { IoRefreshOutline } from "react-icons/io5";
 import type { DoctorFilterOptions, DoctorListQuery, DoctorSort } from "@/types/doctor";
 
 interface DoctorsFiltersProps {
@@ -18,40 +14,40 @@ interface DoctorsFiltersProps {
   query: DoctorListQuery;
   filterOptions: DoctorFilterOptions;
   onChange: (patch: Partial<DoctorListQuery>) => void;
-  onReset: () => void;
 }
 
 /**
  * The five filters the doctors endpoint understands. Each one writes itself
  * into the address bar rather than into local state, so a filtered list is
  * linkable, survives a reload and answers to the back button.
+ *
+ * Layout:
+ *   Row 1 (mobile 2-col / desktop 4-col): Specialization | Hospital | Added from | Added to
+ *   Row 2 (all viewports): Sort dropdown (fixed width, label above) + Search (flex-grow, no label)
  */
 export default function DoctorsFilters({
   query,
   filterOptions,
   onChange,
-  onReset,
 }: DoctorsFiltersProps) {
   const specializationChoices = withAllOption("All specializations", filterOptions.specializations);
   const hospitalChoices = withAllOption("All hospitals", filterOptions.hospitals);
-  const isFiltered = hasQueryState(query);
 
   return (
     <div className="flex w-full flex-col gap-3">
-      <FilterBar>
-        <SearchInput
-          value={query.search ?? ""}
-          placeholder="Search name, specialization or hospital"
-          onDebouncedChange={(value) => onChange({ search: value.trim() || undefined })}
-        />
-
+      {/* Row 1: mobile → 2-col grid (spec + hospital | from + to); desktop → 4-col grid */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
         <Dropdown
+          label="Specialization"
+          hideOptionalText
           options={specializationChoices}
           value={query.specialization ?? ""}
           onChange={(value) => onChange({ specialization: value || undefined })}
         />
 
         <Dropdown
+          label="Hospital"
+          hideOptionalText
           options={hospitalChoices}
           value={query.hospital ?? ""}
           onChange={(value) => onChange({ hospital: value || undefined })}
@@ -76,23 +72,18 @@ export default function DoctorsFilters({
           value={query.to ?? ""}
           onChange={(event) => onChange({ to: event.target.value || undefined })}
         />
-      </FilterBar>
+      </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-h-9">
-          {isFiltered && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<IoRefreshOutline className="h-4 w-4" />}
-              onClick={onReset}
-            >
-              Reset filters
-            </Button>
-          )}
+      {/* Row 2: Search (flex-grow, no label) + Sort (fixed, label above) — same line on all viewports */}
+      <div className="flex items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <SearchInput
+            value={query.search ?? ""}
+            placeholder="Search name, specialization or hospital"
+            onDebouncedChange={(value) => onChange({ search: value.trim() || undefined })}
+          />
         </div>
-
-        <div className="w-56 max-sm:w-full">
+        <div className="w-44 shrink-0">
           <Dropdown
             id="doctor-sort"
             label="Sort by"

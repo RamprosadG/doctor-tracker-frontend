@@ -1,15 +1,12 @@
 "use client";
 
 import Dropdown from "@/components/ui/dropdowns/Dropdown";
-import FilterBar from "@/components/ui/filters/FilterBar";
 import Input from "@/components/ui/inputs/Input";
 import SearchInput from "@/components/ui/inputs/SearchInput";
-import Button from "@/components/ui/buttons/Button";
 import { withAllOption } from "@/types/doctor";
 import { genderOptions } from "@/types/patient";
-import { PATIENT_SORT_OPTIONS, hasQueryState } from "@/lib/patient-query";
+import { PATIENT_SORT_OPTIONS } from "@/lib/patient-query";
 import { loadDoctorOptions } from "@/lib/doctors-client";
-import { IoRefreshOutline } from "react-icons/io5";
 import type {
   PatientFilterOptions,
   PatientGender,
@@ -22,7 +19,6 @@ interface PatientsFiltersProps {
   query: PatientListQuery;
   filterOptions: PatientFilterOptions;
   onChange: (patch: Partial<PatientListQuery>) => void;
-  onReset: () => void;
 }
 
 /**
@@ -34,12 +30,19 @@ interface PatientsFiltersProps {
  * hardcoded list: the portal can only offer what the practice has actually
  * stored, and a condition somebody types is free text the dropdown would never
  * have guessed.
+ *
+ * Layout:
+ *   Desktop — Row 1: Condition | Doctor | Gender | Visited from | Visited to (5-col)
+ *             Row 2: Search (flex-grow, no label) + Sort (fixed, label above)
+ *   Mobile  — Row 1: Condition (full width)
+ *             Row 2: Doctor | Gender
+ *             Row 3: Visited from | Visited to
+ *             Row 4: Search | Sort
  */
 export default function PatientsFilters({
   query,
   filterOptions,
-  onChange,
-  onReset,
+  onChange
 }: PatientsFiltersProps) {
   const conditionChoices = withAllOption("All conditions", filterOptions.conditions);
   // The value a doctor choice carries is its identifier, not its name: two
@@ -49,24 +52,25 @@ export default function PatientsFilters({
     ...filterOptions.doctors.map((doctor) => ({ value: doctor.id, label: doctor.name })),
   ];
   const genderChoices = [{ value: "", label: "All genders" }, ...genderOptions];
-  const isFiltered = hasQueryState(query);
 
   return (
     <div className="flex w-full flex-col gap-3">
-      <FilterBar>
-        <SearchInput
-          value={query.search ?? ""}
-          placeholder="Search name, phone or email"
-          onDebouncedChange={(value) => onChange({ search: value.trim() || undefined })}
-        />
+      {/* Row 1 — mobile: Condition full-width; desktop: all 5 dropdowns in one row */}
+      <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+        {/* Condition: full-width on mobile (col-span-2), 1 col on desktop */}
+        <div className="col-span-2 md:col-span-1">
+          <Dropdown
+            label="Condition"
+            hideOptionalText
+            options={conditionChoices}
+            value={query.condition ?? ""}
+            onChange={(value) => onChange({ condition: value || undefined })}
+          />
+        </div>
 
         <Dropdown
-          options={conditionChoices}
-          value={query.condition ?? ""}
-          onChange={(value) => onChange({ condition: value || undefined })}
-        />
-
-        <Dropdown
+          label="Doctor"
+          hideOptionalText
           ariaLabel="Filter by doctor"
           searchable
           searchPlaceholder="Search doctors..."
@@ -78,6 +82,8 @@ export default function PatientsFilters({
         />
 
         <Dropdown
+          label="Gender"
+          hideOptionalText
           options={genderChoices}
           value={query.gender ?? ""}
           onChange={(value) => onChange({ gender: (value || undefined) as PatientGender | undefined })}
@@ -102,23 +108,18 @@ export default function PatientsFilters({
           value={query.to ?? ""}
           onChange={(event) => onChange({ to: event.target.value || undefined })}
         />
-      </FilterBar>
+      </div>
 
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="min-h-9">
-          {isFiltered && (
-            <Button
-              variant="ghost"
-              size="sm"
-              icon={<IoRefreshOutline className="h-4 w-4" />}
-              onClick={onReset}
-            >
-              Reset filters
-            </Button>
-          )}
+      {/* Row 2 — Search (left, flex-grow, no label) + Sort (right, fixed, label above) */}
+      <div className="flex items-end gap-3">
+        <div className="min-w-0 flex-1">
+          <SearchInput
+            value={query.search ?? ""}
+            placeholder="Search name, phone or email"
+            onDebouncedChange={(value) => onChange({ search: value.trim() || undefined })}
+          />
         </div>
-
-        <div className="w-56 max-sm:w-full">
+        <div className="w-44 shrink-0">
           <Dropdown
             id="patient-sort"
             label="Sort by"

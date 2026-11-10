@@ -383,11 +383,11 @@ function PatientForm({
         </div>
       </div>
 
-      <div className="flex items-center justify-end gap-3 border-t border-gray-100 pt-4">
-        <Button variant="secondary" onClick={onClose} disabled={isSubmitting}>
+      <div className="flex items-center gap-3 border-t border-gray-100 pt-4">
+        <Button variant="secondary" onClick={onClose} disabled={isSubmitting} className="flex-1">
           Cancel
         </Button>
-        <Button type="submit" isLoading={isSubmitting}>
+        <Button type="submit" isLoading={isSubmitting} className="flex-1">
           {patient ? "Save Changes" : "Create New"}
         </Button>
       </div>

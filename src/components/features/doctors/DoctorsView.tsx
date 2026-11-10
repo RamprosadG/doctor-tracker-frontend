@@ -13,7 +13,6 @@ import { showErrorAlert, showSuccessAlert } from "@/components/ui/alerts/Alerts"
 import { deleteDoctor } from "@/lib/doctors-client";
 import { apiMessage } from "@/lib/api-client";
 import {
-  DEFAULT_DOCTOR_SORT,
   doctorQueryToSearchParams,
   withFirstPage,
 } from "@/lib/doctor-query";
@@ -72,14 +71,6 @@ export default function DoctorsView({
 
   const changeFilters = (patch: Partial<DoctorListQuery>): void => {
     applyQuery(withFirstPage(pendingQuery.current ?? query, patch), true);
-  };
-
-  const resetFilters = (): void => {
-    applyQuery({
-      page: 1,
-      pageSize: (pendingQuery.current ?? query).pageSize,
-      sort: DEFAULT_DOCTOR_SORT,
-    });
   };
 
   const changePage = (page: number): void => {
@@ -144,7 +135,6 @@ export default function DoctorsView({
         query={query}
         filterOptions={filterOptions}
         onChange={changeFilters}
-        onReset={resetFilters}
       />
 
       {loadError && (

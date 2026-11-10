@@ -12,7 +12,7 @@ import { confirmDelete } from "@/components/ui/modals/ConfirmModal";
 import { showErrorAlert, showSuccessAlert } from "@/components/ui/alerts/Alerts";
 import { deletePatient } from "@/lib/patients-client";
 import { apiMessage } from "@/lib/api-client";
-import { DEFAULT_PATIENT_SORT, patientQueryToSearchParams, withFirstPage } from "@/lib/patient-query";
+import { patientQueryToSearchParams, withFirstPage } from "@/lib/patient-query";
 import type { PaginatedPayload } from "@/types/api";
 import type { Patient, PatientFilterOptions, PatientListQuery } from "@/types/patient";
 
@@ -72,14 +72,6 @@ export default function PatientsView({
     applyQuery(withFirstPage(pendingQuery.current ?? query, patch), true);
   };
 
-  const resetFilters = (): void => {
-    applyQuery({
-      page: 1,
-      pageSize: (pendingQuery.current ?? query).pageSize,
-      sort: DEFAULT_PATIENT_SORT,
-    });
-  };
-
   const changePage = (page: number): void => {
     applyQuery({ ...(pendingQuery.current ?? query), page });
   };
@@ -133,7 +125,6 @@ export default function PatientsView({
         query={query}
         filterOptions={filterOptions}
         onChange={changeFilters}
-        onReset={resetFilters}
       />
 
       {loadError && (
