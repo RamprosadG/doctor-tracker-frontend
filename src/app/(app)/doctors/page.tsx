@@ -1,16 +1,18 @@
-import { PageHeader } from "@/components/shared/PageHeader";
+import { Suspense } from "react";
+import DoctorsContent from "@/components/features/doctors/DoctorsContent";
+import DoctorsSkeleton from "@/components/features/doctors/DoctorsSkeleton";
+import type { SearchParamsInput } from "@/lib/utils";
 
-export default function DoctorsPage() {
+interface DoctorsPageProps {
+  searchParams: SearchParamsInput;
+}
+
+export default function DoctorsPage({ searchParams }: DoctorsPageProps) {
   return (
     <div className="flex w-full flex-col gap-6">
-      <PageHeader
-        title="Doctors"
-        description="Search, filter and page through every doctor, then open one to manage its patients."
-      />
-
-      <p className="rounded-xl border border-dashed border-gray-300 bg-white p-8 text-center text-sm text-slate-500">
-        The doctors table and its filters appear here.
-      </p>
+      <Suspense fallback={<DoctorsSkeleton />}>
+        <DoctorsContent searchParams={searchParams} />
+      </Suspense>
     </div>
   );
 }

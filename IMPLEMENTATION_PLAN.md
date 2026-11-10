@@ -18,7 +18,7 @@ this plan — may name another project. Every component is described as somethin
 - [x] **Step 0: Dual Bootstrap — Repo Skeletons, Config, Shell & UI Primitives** *(Verified & Committed)*
 - [x] **Step 1: Data Layer — Mongoose Models, Indexes, Seed & Typed API Client** *(Verified & Committed)*
 - [x] **Step 2: Authentication — Login, Token Rotation, Protected Routes** *(Verified & Committed)*
-- [ ] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Planned)*
+- [x] **Step 3: Doctor Management — CRUD, Search, Filter, Pagination** *(Verified & Committed)*
 - [ ] **Step 4: Patient Management — Dedicated Page, CRUD, Filters** *(Planned)*
 - [ ] **Step 5: Doctor ↔ Patient Relations — Detail View & Sub-lists** *(Planned)*
 - [ ] **Step 6: Dashboard & Analytics — Recharts Visual Insights** *(Planned)*
@@ -31,8 +31,8 @@ this plan — may name another project. Every component is described as somethin
 | ---- | ----- | -------------- | --------------- | ------ |
 | 0 | Bootstrap | `21c6760` | `301bae0` | Verified & Committed |
 | 1 | Data layer | `fe732a2` | `ec63f0d` | Verified & Committed |
-| 2 | Auth | — | — | Planned |
-| 3 | Doctors | — | — | Planned |
+| 2 | Auth | `7e1ed5a` | `49b6d58` | Verified & Committed |
+| 3 | Doctors | — | — | Verified & Committed |
 | 4 | Patients | — | — | Planned |
 | 5 | Relations | — | — | Planned |
 | 6 | Dashboard | — | — | Planned |
@@ -126,7 +126,7 @@ TLS-protected hosted cluster on 2026-11-10.**
     by `npm run db:inspect`, the read-only probe added with this step (counts, index list, plans).
 - [x] **1.2** `src/modules/user/user.model.ts` — `name`, unique lower-cased `email`, `password` (`select: false`), `role` enum `['admin']`, timestamps.
   - Verify: `db.users.getIndexes()` in a probe script.
-- [x] **1.3** `src/modules/doctor/doctor.model.ts` — `name`, `specialization`, `hospital`, `phone`, `email` (unique), lowercase mirrors, timestamps. Indexes: `{ email: 1 }` unique, `{ phone: 1 }` unique, `{ nameLower: 1 }`, `{ specializationLower: 1 }`, `{ hospitalLower: 1 }`, `{ specialization: 1, createdAt: -1 }`, `{ createdAt: -1 }`.
+- [x] **1.3** `src/modules/doctor/doctor.model.ts` — `name`, `specialization`, `hospital`, `phone`, `email` (unique), lowercase mirrors, timestamps. Indexes: `{ email: 1 }` unique, `{ phone: 1 }` unique, `{ nameLower: 1 }`, `{ specializationLower: 1 }`, `{ hospitalLower: 1 }`, `{ specialization: 1, createdAt: -1 }`, `{ hospitalLower: 1, createdAt: -1 }` (added by Step 3 so the hospital filter never sorts in memory), `{ createdAt: -1 }`.
   - Verify: index list matches, duplicate email rejected with code 11000.
 - [x] **1.4** `src/modules/patient/patient.model.ts` — `name`, `phone`, `email`, `gender`, `age`, `condition`, `notes`, `visitDate`, `doctorId` (ref, required), lowercase mirrors. Indexes: `{ doctorId: 1, visitDate: -1 }`, `{ condition: 1, visitDate: -1 }`, `{ visitDate: -1 }`, `{ nameLower: 1 }`, `{ phone: 1 }` unique, `{ emailLower: 1 }`.
   - Verify: `explain()` on a `doctorId` match shows `IXSCAN`; deleting a doctor leaves no orphan patients (documented policy).
@@ -190,31 +190,90 @@ TLS-protected hosted cluster on 2026-11-10.**
 
 ### Step 3: Doctor Management — CRUD, Search, Filter, Pagination
 **Goal**: The full doctors list, driven by the database, on both screen faces.
-**Status:** Planned
+**Status:** Verified & Committed
 
 #### Backend
-- [ ] **3.1** `doctor.schema.ts` — create/update/pagination-query/list-query zod schemas (email, phone format, min lengths, `limit` cap, ISO date bounds, sort whitelist).
-  - Verify: an invalid `page` returns 400 with the field message.
-- [ ] **3.2** `doctor.service.ts` list pipeline: single `$match` from search + specialization + hospital + date range, `countDocuments` → `skip`/`take` → projection with `lean()`, sorted by a whitelisted key.
-  - Verify: `explain()` shows `IXSCAN`/bounded `docsExamined` at 5 000 seeded rows; page 2 returns different ids.
-- [ ] **3.3** `doctor.controller.ts` + `doctor.route.ts` — `GET /doctors`, `POST /doctors`, `GET /doctors/:id`, `PATCH /doctors/:id`, `DELETE /doctors/:id`, `GET /doctors/meta/filters` (distinct specializations + hospitals for the dropdowns).
-  - Verify: each verb through curl, duplicate email → 409, unknown id → 404 (not 500).
-- [ ] **3.4** Delete semantics: removing a doctor removes or unassigns its patients inside one transaction (or ordered fallback), and the response reports the affected count.
-  - Verify: patient count drops by exactly the deleted doctor's roster.
+- [x] **3.1** `doctor.schema.ts` — create/update/pagination-query/list-query zod schemas (email, phone format, min lengths, `limit` cap, ISO date bounds, sort whitelist).
+  - `updateDoctorSchema` is `createDoctorSchema.partial()` with a `superRefine` that refuses an empty
+    patch, so a form that changed nothing cannot answer "saved". Blank query parameters are stripped
+    before parsing — a half-typed `?page=` in an editable address bar is "no filter", not a 400.
+  - Verify: `page=abc`, `page=0` and an oversized `pageSize` each return 400 naming the field.
+- [x] **3.2** `doctor.service.ts` list pipeline: single `$match` from search + specialization + hospital + date range, `countDocuments` → `skip`/`take` → projection with `lean()`, sorted by a whitelisted key.
+  - Delivered as one aggregation rather than `find().lean()`, because each row also needs its roster
+    size: `$match → $sort → $skip → $limit → $lookup(count) → $project`, so the roster is counted for
+    the ten surviving rows instead of one count query per doctor. `countDocuments` still answers the
+    total. The `$project` is inclusion-only — MongoDB refuses a projection that mixes the two.
+  - The sort whitelist maps to lowercase mirror fields (`-name → {nameLower:-1}`), and
+    `{ hospitalLower: 1, createdAt: -1 }` was added to the model so the hospital filter never sorts in
+    memory. Search is anchored and case-sensitive against `nameLower`/`specializationLower`/`hospitalLower`.
+  - Query strings are parsed inside the controller, not in `validateSchema`: Express 5 defines
+    `req.query` as a getter, so middleware cannot replace it. `globalError` maps `ZodError` to the same
+    400 field envelope the middleware produces.
+  - Verify: `explain()` at 5 012 rows — see the load probe in the session log; page 2 returns different ids.
+- [x] **3.3** `doctor.controller.ts` + `doctor.route.ts` — `GET /doctors`, `POST /doctors`, `GET /doctors/:id`, `PATCH /doctors/:id`, `DELETE /doctors/:id`, `GET /doctors/meta/filters` (distinct specializations + hospitals for the dropdowns).
+  - `/meta/filters` is declared before `/:id` so the word "meta" is never handed to the identifier
+    route. `PATCH` assigns then saves rather than using `findOneAndUpdate`, because the lowercase
+    mirrors are maintained by the model's `pre("save")` hook.
+  - New `utils/mongoError.ts` turns write conflicts into the API's own error shapes: duplicate key 11000
+    → 409 pinned to the offending field (`email`, `phone`), `CastError` → 400, Mongoose
+    `ValidationError` → 400 per path. The unique indexes are the real guard, so there is no pre-flight
+    query that could pass and then lose the race.
+  - Verify: every verb through the contract probe, duplicate email/phone → 409 with the field message,
+    unknown-but-valid id → 404 (not 500), malformed id → 400 on the `id` field.
+- [x] **3.4** Delete semantics: removing a doctor removes or unassigns its patients inside one transaction (or ordered fallback), and the response reports the affected count.
+  - `session.withTransaction` over `Patient.deleteMany` + `Doctor.deleteOne`; the hosted replica set
+    supports transactions, so a patient whose doctor is gone can never be observed. The response
+    reports `{ id, name, patientsRemoved }` and the message names the count.
+  - Verify: 60 + 3 fixture patients → 60 after the delete, with `patientsRemoved: 3`, and zero orphans.
 
 #### Frontend
-- [ ] **3.5** `/doctors/page.tsx` Server Component + `Suspense` + `DoctorsContent` that reads URL search params, calls `GET /doctors`, and hands the payload to `DoctorsView`.
-  - Verify: view-source contains row data; loading skeleton appears on slow navigation.
-- [ ] **3.6** Shared `PageHeader` with `DoctorsActions` (create button) and `DoctorsSection` (state in URL, transition-guarded navigation, `router.refresh()` after mutations).
-  - Verify: back/forward restores search + page; typing does not fire duplicate requests.
-- [ ] **3.7** `DoctorsFilters` — `SearchInput` (debounced, name/specialization/hospital) + specialization + hospital + date-from + date-to dropdowns in `FilterBar`, with a Reset control when any filter is active.
-  - Verify: each filter changes the server `page=1` request; reset clears all params.
-- [ ] **3.8** `DoctorsTable` over `DataTable` — name (semibold, capped width), specialization + hospital as quiet text lines, phone, email, created date, patient count link, actions; `renderCard` mirrors the same field order at 375 px.
-  - Verify: no horizontal scroll at 375 px; only one badge per row.
-- [ ] **3.9** `DoctorFormModal` — create/update with client validation, server error mapping, "Create New"/"Save Changes" labels, `Button` variants reused from the shared primitive; delete through `confirmDelete`.
-  - Verify: create → row appears; update → values persist; delete → row and its patients gone.
-- [ ] **3.10** `Pagination` bound to the API `{ page, pageSize, total, totalPages }` meta.
-  - Verify: "Showing x to y of z" matches the server `total`.
+- [x] **3.5** `/doctors/page.tsx` Server Component + `Suspense` + `DoctorsContent` that reads URL search params, calls `GET /doctors`, and hands the payload to `DoctorsView`.
+  - `page.tsx` renders only the `Suspense` boundary; `DoctorsContent` awaits the list and the filter
+    options together, and its fallback is `DoctorsSkeleton` — the page shape with the words taken out,
+    so arriving data moves nothing.
+  - A failed read is answered in place (`loadError` card, empty table, filters still usable) instead of
+    throwing at the viewer, and the page it hands down is the page the API actually served — the API
+    clamps a page past the last one, and the view must push the clamped number, not the stale one.
+  - Verify: the served document contains row data and the skeleton markup before the rows stream in.
+- [x] **3.6** Shared `PageHeader` with `DoctorsActions` (create button) and `DoctorsSection` (state in URL, transition-guarded navigation, `router.refresh()` after mutations).
+  - Delivered as `DoctorsView` rather than `DoctorsSection`; the file owns the whole client surface of
+    the page, so the name says what it is.
+  - The address bar is the only state: a filter push re-renders the server read for the new URL, and a
+    write keeps the URL and calls `router.refresh()`. Between a push and the render that answers it the
+    props still describe the previous URL, so patches are built from a ref that is cleared the moment
+    new props land — two quick filter changes cannot discard the first, and a browser back/forward
+    restores authority to the server's read.
+  - Verify: back/forward restores search + page (proven on `?sort=name` → `&page=2`); one debounced
+    keystroke burst produces exactly **1** RSC request; create/edit/delete revalidate the same URL.
+- [x] **3.7** `DoctorsFilters` — `SearchInput` (debounced, name/specialization/hospital) + specialization + hospital + date-from + date-to dropdowns in `FilterBar`, with a Reset control when any filter is active.
+  - Five controls in the bar, which is the odd count that gives the search box its own row at phone
+    width. Sort is *not* a sixth bar control: it rides in the results row beneath it with the Reset
+    button, so a view preference never displaces a filter. Reset is offered only while the URL actually
+    carries something, which `hasQueryState` decides from the same codec that writes the URL.
+  - Specialization and hospital options come from `GET /doctors/meta/filters`, so the dropdowns list
+    what the practice holds; the create form offers the curated list instead.
+  - Verify: each filter produces a server request at `page=1` (`?specialization=Cardiology`,
+    `?hospital=…`, `?from=2026-09-01&to=2026-09-10`, `?sort=name`), reset returns the URL to bare.
+- [x] **3.8** `DoctorsTable` over `DataTable` — name (semibold, capped width), specialization + hospital as quiet text lines, phone, email, created date, patient count link, actions; `renderCard` mirrors the same field order at 375 px.
+  - Both faces carry the same seven fields in the same order; the count becomes a link in Step 5, when
+    the doctor detail page exists to link to. Captions moved to one shared `FieldCaption` so the card
+    rows and the filter labels are the same voice.
+  - Verify: at 375 px `scrollWidth == clientWidth` (no horizontal scroll) with the table hidden and the
+    cards shown; at 1440 px the reverse; exactly one badge per row on either face.
+- [x] **3.9** `DoctorFormModal` — create/update with client validation, server error mapping, "Create New"/"Save Changes" labels, `Button` variants reused from the shared primitive; delete through `confirmDelete`.
+  - The form is an inner component mounted only while the dialog is open, so it seeds itself once on
+    mount instead of watching the record — a reopened dialog cannot carry over the previous doctor's
+    values or a stale message. Client rules mirror `createDoctorSchema` string for string, and a
+    rejected write pins the API's field errors to the same inputs and stays open.
+  - Verify: empty submit shows the five field messages and red borders; create toasts and the row
+    appears at the top of page 1 (total 12 → 13); a duplicate email 409s onto the email field; edit
+    seeds from the record, renames the hospital and the new value survives the revalidation; delete
+    confirms, toasts and the row is gone (13 → 12).
+- [x] **3.10** `Pagination` bound to the API `{ page, pageSize, total, totalPages }` meta.
+  - Hidden when the result set is empty, so "Showing 0 to 0 of 0 entries" never sits under an empty
+    table.
+  - Verify: "Showing 1 to 10 of 12" unfiltered, "1 to 1 of 1" for `?search=card`, "11 to 12 of 12" on
+    page 2 — each matches the server `total`.
 
 **Step 3 gate:** CRUD + every filter verified in the browser at desktop and phone widths, curl contract checks, lint/typecheck/build. → commit both.
 
@@ -384,6 +443,58 @@ copy by step *N+1*'s commit. Every copy is ticked before it is committed, never 
 
 ## Session log
 
+- **2026-11-10** — Step 3 verified and committed. Backend `dist/probe-doctors.mjs`: **35/35** against the
+  live cluster — `page=abc` / `page=0` / `pageSize=101` each answer 400 naming the field, a blank
+  parameter is "no filter" rather than an error, the list is closed without a session (401), `POST`
+  returns 201 with `patientCount: 0`, a duplicate **email** and a duplicate **phone** each 409 pinned to
+  their own field, a five-field-invalid create returns all five field names, the detail route returns the
+  roster *count* and not the roster, `PATCH` renames the record and the lowercase mirrors follow it (a
+  search on the new hospital finds it in the same second), an empty patch is refused instead of
+  pretending to save, an unknown-but-well-formed id is 404 on both `GET` and `DELETE` while a malformed
+  one is 400 on the `id` field, and the cascade is measured against a baseline taken *before* three
+  fixture patients land: 60 + 3 → 60 with `patientsRemoved: 3` reported and zero orphans. Backend
+  `dist/probe-load.ts`: **5/5** at 5 012 doctors, explaining the pipeline the service actually ships —
+  browse newest-first `LIMIT › PROJECTION_SIMPLE › FETCH › SKIP › IXSCAN` docs 10 / keys 30 / 1 ms,
+  name-prefix search `SUBPLAN › PROJECTION_SIMPLE › SORT › FETCH › OR › IXSCAN` docs 10 / keys 12,
+  specialization + date sort and hospital + created window both `… › FETCH › IXSCAN` docs 10 / keys 10,
+  and the counts answered without touching documents: `COUNT_SCAN` keys 1001 (specialization) and keys
+  101 (hospital) at docs 0. The one legitimate `COLLSCAN` is the *unfiltered* total, which by definition
+  counts the whole collection (5 012 docs, 2 ms) — the probe asserts that shape separately so it can
+  never be mistaken for a leaked scan. Five 000-row fixture doctors were deleted afterwards; `12 doctors
+  / 60 patients` verified twice. Things the toolchain forced: Express 5 defines `req.query` as a getter,
+  so query parsing moved into the controller with `ZodError → 400` added to `globalError` (Mongoose 9 has
+  no `FilterQuery` — the ambient type is `QueryFilter` — and `$sort` wants `Record<string, 1 | -1>`, not a
+  `SortOrder`); MongoDB refuses a `$project` that mixes inclusion with exclusion; `countDocuments(…).explain()`
+  resolves to a bare number, so the count's own aggregation pipeline is explained instead; an explain
+  counters block must be read from the *outermost* `executionStats`, because a pipeline that splits for
+  `$lookup` carries one per branch; and the hospital filter in-memory `SORT`ed until
+  `{ hospitalLower: 1, createdAt: -1 }` was added to the model. Frontend, in a real browser against
+  `:3000` + `:5000` as a throwaway fixture admin: the served document carries rows, the filter bar and
+  the meta line *before* any script runs, and the `Suspense` fallback is in the same stream, so a slow
+  read shows the skeleton rather than a blank page. `?search=card` produced exactly **1** RSC request
+  (`GET /doctors?search=card&_rsc=…`) and narrowed 12 → 1; the specialization and hospital dropdowns —
+  filled from `meta/filters`, 7 hospitals — compose (`?specialization=Cardiology&hospital=Meridian+General+Hospital`);
+  `?from=2026-09-01` → Priya Nair + Hana Kim, `&to=2026-09-10` → Hana Kim alone (a day-wide window);
+  `?sort=name` reorders on the `nameLower` mirror; page 2 reads "Showing 11 to 12 of 12 entries" and
+  Back/Forward restore `?sort=name` and `?sort=name&page=2` with their rows; Reset returns the URL to
+  bare and removes itself. CRUD: an empty submit lists all five field messages and reddens the four
+  inputs; a create toasts "QA Step3 Fixture was added to the practice.", closes the dialog and lands on
+  page 1 (total 12 → 13); the same email twice keeps the dialog open with the API's own 409 sentence on
+  the email field; edit opens seeded ("Edit Doctor", specialization showing *Cardiology*, "Save Changes")
+  and the renamed hospital survives revalidation; delete confirms with "This doctor has no patients.",
+  toasts and returns the list to 12. Widths probed through same-origin iframes: 375 px `scrollWidth 360
+  == clientWidth 360` with the table hidden and the cards shown, 1440 px the reverse, and exactly one
+  badge per row on both faces. Deviations recorded in place: the page-level aggregation replaces
+  `find().lean()` (roster sizes in one round trip), the client section is `DoctorsView` rather than
+  `DoctorsSection`, and sort rides under the filter bar instead of inside it. `pageSize` stays at the
+  default 10 — no rows-per-page control is in the brief. QA hygiene: the browser ran on the fixture
+  account created and dropped by `dist/qa-user.mjs` (teardown `sessions cleared: 1`) and the fixture
+  doctor written through the UI; the real seeded admin's credentials were never read, printed or served,
+  and the cluster ended at 12 doctors / 60 patients. One tooling note: the first sign-in attempt appeared
+  to fail because a navigation was issued immediately after the click, which aborted the `POST` — the app
+  behaved correctly by refusing `/doctors` and returning to `/login?next=%2Fdoctors`. Backend `lint`,
+  `typecheck`, `build` and frontend `lint`, `tsc --noEmit`, `build` all green; `/doctors` stays dynamic
+  (`ƒ`) in the build output.
 - **2026-11-10** — Step 2 verified and committed. Backend `probe-auth.mjs`: **15/15** against the live
   cluster — login sets `accessToken` (`Max-Age=1800`) and `refreshToken` (`Max-Age=604800`), both
   `HttpOnly; SameSite=Lax; Path=/`; no response body contains a `eyJ` token anywhere; `/auth/me` 200s

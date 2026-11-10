@@ -66,6 +66,17 @@ export async function unwrap<T>(response: Response): Promise<T> {
   return envelope.data;
 }
 
+/**
+ * A failed call is reported in exactly one place, so a form can hand the API's
+ * own field messages to its inputs and a toast can quote the API's own sentence
+ * without every caller re-testing the error type.
+ */
+export const apiMessage = (error: unknown, fallback: string): string =>
+  error instanceof ApiError ? error.message : fallback;
+
+export const apiFieldErrors = (error: unknown): FieldErrors | undefined =>
+  error instanceof ApiError ? error.errors : undefined;
+
 export interface RequestOptions {
   query?: QueryParams;
   body?: unknown;

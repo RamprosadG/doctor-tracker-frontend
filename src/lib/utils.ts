@@ -25,6 +25,30 @@ export function formatNumber(value: number): string {
   return new Intl.NumberFormat("en-US").format(value);
 }
 
+/** What a route segment receives for `searchParams` in the App Router. */
+export type SearchParamsInput = Promise<
+  Record<string, string | string[] | undefined>
+>;
+
+/**
+ * Next hands route segments their query as a promise of a flat record, where a
+ * repeated key may arrive as an array. `URLSearchParams` is the one shape both
+ * the server render and the client view can feed the same codec, so every list
+ * page converts once, at the edge of the route.
+ */
+export function toSearchParams(
+  source: Awaited<SearchParamsInput>,
+): URLSearchParams {
+  const params = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined) continue;
+    params.set(key, Array.isArray(value) ? (value[0] ?? "") : value);
+  }
+
+  return params;
+}
+
 /** Reads `page`/`pageSize` out of a URLSearchParams, clamped to sane values. */
 export function parsePagination(
   searchParams: URLSearchParams,
