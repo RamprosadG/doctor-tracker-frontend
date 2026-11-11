@@ -63,7 +63,7 @@ function DataTable<T extends { id?: string }>({
       className={`w-full overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm ${className}`}
     >
       {renderCard && (
-        <ul className="divide-y divide-slate-200 sm:hidden">
+        <ul className="divide-y divide-slate-200 lg:hidden">
           {data.map((item, index) => (
             <li key={item.id ?? index} className="px-4 py-4">
               {renderCard(item, index)}
@@ -71,11 +71,11 @@ function DataTable<T extends { id?: string }>({
           ))}
         </ul>
       )}
-      {/* A card list owns the phone width, so the table stops at the sm edge. */}
+      {/* A card list owns mobile and tablet screens, so the table starts at the lg (laptop/desktop) edge. */}
       <div
         className={
           renderCard
-            ? "hidden w-full overflow-x-auto sm:block"
+            ? "hidden w-full overflow-x-auto lg:block"
             : "w-full overflow-x-auto"
         }
       >
